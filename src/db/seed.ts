@@ -369,12 +369,12 @@ async function main() {
   });
 
   console.log("✓ seed selesai");
-  console.log("  Owner : 0811111111 / PIN 111111 (akses 2 tenant)");
-  console.log("  Budi  : 0822222222 / PIN 222222 (hourly)");
-  console.log("  Sari  : 0833333333 / PIN 333333 (daily)");
-  console.log("  Andi  : 0844444444 / PIN 444444 (monthly)");
-  console.log("  Rina  : 0855555555 / PIN 555555 (per_task)");
-  console.log("  Tono  : 0866666666 / PIN 666666 (Bakery Pagi, daily)");
+  console.log("  Owner : 08111111111 / PIN 111111 (akses 2 tenant)");
+  console.log("  Budi  : 08222222222 / PIN 222222 (hourly)");
+  console.log("  Sari  : 08333333333 / PIN 333333 (daily)");
+  console.log("  Andi  : 08444444444 / PIN 444444 (monthly)");
+  console.log("  Rina  : 08555555555 / PIN 555555 (per_task)");
+  console.log("  Tono  : 08666666666 / PIN 666666 (Bakery Pagi, daily)");
 }
 
 main()
