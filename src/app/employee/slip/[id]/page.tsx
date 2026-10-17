@@ -16,7 +16,7 @@ export default async function EmployeePayslipDetail({ params }: { params: Promis
   return (
     <div className="space-y-3">
       <div className="no-print flex items-center justify-between gap-2">
-        <Link href="/employee/slip" className="text-xs text-muted">
+        <Link href="/employee/slip" className="text-xs text-muted-foreground hover:underline">
           ← Semua slip
         </Link>
         <PrintButton label="Cetak slip" />

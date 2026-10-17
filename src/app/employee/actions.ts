@@ -7,7 +7,7 @@ import { db } from "@/db";
 import { cashAdvances, timeEntries, workTasks } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { requireEmployee } from "@/lib/session";
-import { localDateString, parseMoneyInput } from "@/lib/utils";
+import { localDateString, parseMoneyInput } from "@/lib/format";
 
 function fail(path: string, message: string): never {
   redirect(`${path}?err=${encodeURIComponent(message)}`);

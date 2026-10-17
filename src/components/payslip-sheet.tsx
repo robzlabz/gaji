@@ -1,5 +1,21 @@
 import type { PayslipDoc } from "@/lib/payslip-doc";
-import { PAY_TYPE_LABEL, formatDateID, formatDateTimeID, rupiah, toNumber } from "@/lib/utils";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PAY_TYPE_LABEL, formatDateID, formatDateTimeID, rupiah, toNumber } from "@/lib/format";
 
 const DEDUCTION_KINDS = new Set(["kasbon", "deduction"]);
 
@@ -9,33 +25,37 @@ const STATUS_LABEL: Record<string, string> = {
   paid: "Sudah dibayar",
 };
 
-function Row({
-  label,
-  qty,
-  unit,
-  unitRate,
-  amount,
-  negative,
-}: {
-  label: string;
-  qty: number;
-  unit: string;
-  unitRate: number;
-  amount: number;
-  negative?: boolean;
-}) {
+type Item = PayslipDoc["items"][number];
+
+function ItemRows({ items, negative }: { items: Item[]; negative?: boolean }) {
+  if (items.length === 0) {
+    return (
+      <TableRow>
+        <TableCell colSpan={4} className="text-center text-muted-foreground">
+          {negative ? "Tidak ada potongan." : "Tidak ada komponen penerimaan."}
+        </TableCell>
+      </TableRow>
+    );
+  }
+
   return (
-    <tr className="border-b border-stone-200 last:border-0">
-      <td className="py-1.5 pr-3 text-stone-800">{label}</td>
-      <td className="py-1.5 pr-3 text-right tabular-nums text-stone-600">
-        {qty} {unit}
-      </td>
-      <td className="py-1.5 pr-3 text-right tabular-nums text-stone-600">{rupiah(unitRate)}</td>
-      <td className="py-1.5 text-right tabular-nums font-medium text-stone-900">
-        {negative ? "−" : ""}
-        {rupiah(amount)}
-      </td>
-    </tr>
+    <>
+      {items.map((item) => (
+        <TableRow key={item.id}>
+          <TableCell className="font-medium whitespace-normal">{item.label}</TableCell>
+          <TableCell className="text-right tabular-nums text-muted-foreground">
+            {toNumber(item.qty)} {item.unit}
+          </TableCell>
+          <TableCell className="hidden text-right tabular-nums text-muted-foreground sm:table-cell">
+            {rupiah(toNumber(item.unitRate))}
+          </TableCell>
+          <TableCell className="text-right tabular-nums">
+            {negative ? "−" : ""}
+            {rupiah(toNumber(item.amount))}
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
   );
 }
 
@@ -46,136 +66,107 @@ export function PayslipSheet({ orgName, doc }: { orgName: string; doc: PayslipDo
   const deductions = items.filter((item) => DEDUCTION_KINDS.has(item.kind));
 
   return (
-    <article className="mx-auto w-full max-w-[210mm] rounded-2xl border border-line bg-white p-8 text-sm text-stone-800 print:max-w-none print:rounded-none print:border-0 print:p-0">
-      <header className="flex items-start justify-between gap-6 border-b border-stone-300 pb-4">
-        <div>
-          <p className="text-base font-semibold text-stone-900">{orgName}</p>
-          <p className="text-xs text-stone-500">Slip gaji karyawan</p>
+    <Card className="mx-auto w-full max-w-[210mm] print:max-w-none print:ring-0">
+      <CardHeader className="border-b">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-lg">{orgName}</CardTitle>
+            <CardDescription>Slip gaji karyawan</CardDescription>
+          </div>
+          <div className="text-right">
+            <CardDescription>Periode</CardDescription>
+            <p className="font-semibold tabular-nums">
+              {formatDateID(period.periodStart)} – {formatDateID(period.periodEnd)}
+            </p>
+            <CardDescription>
+              {STATUS_LABEL[slip.status] ?? slip.status}
+              {period.payDate ? ` · bayar ${formatDateID(period.payDate)}` : ""}
+            </CardDescription>
+          </div>
         </div>
-        <div className="text-right">
-          <p className="text-xs uppercase tracking-wide text-stone-500">Periode</p>
-          <p className="font-semibold text-stone-900">
-            {formatDateID(period.periodStart)} – {formatDateID(period.periodEnd)}
-          </p>
-          <p className="text-xs text-stone-500">
-            {STATUS_LABEL[slip.status] ?? slip.status}
-            {period.payDate ? ` · bayar ${formatDateID(period.payDate)}` : ""}
-          </p>
-        </div>
-      </header>
+      </CardHeader>
 
-      <section className="grid grid-cols-2 gap-x-6 gap-y-2 border-b border-stone-300 py-4 text-xs sm:grid-cols-4">
-        <div>
-          <p className="text-stone-500">Nama</p>
-          <p className="text-sm font-medium text-stone-900">{employee.fullName}</p>
-        </div>
-        <div>
-          <p className="text-stone-500">Kode</p>
-          <p className="text-sm font-medium text-stone-900">{employee.code ?? "—"}</p>
-        </div>
-        <div>
-          <p className="text-stone-500">Tipe gaji</p>
-          <p className="text-sm font-medium text-stone-900">{PAY_TYPE_LABEL[slip.payType] ?? slip.payType}</p>
-        </div>
-        <div>
-          <p className="text-stone-500">Tarif</p>
-          <p className="text-sm font-medium text-stone-900">{rupiah(toNumber(slip.payRate))}</p>
-        </div>
-      </section>
+      <CardContent className="flex flex-col gap-5">
+        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+          <div>
+            <dt className="text-muted-foreground">Nama</dt>
+            <dd className="font-medium">{employee.fullName}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Kode</dt>
+            <dd className="font-medium">{employee.code ?? "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Tipe gaji</dt>
+            <dd className="font-medium">{PAY_TYPE_LABEL[slip.payType] ?? slip.payType}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Tarif</dt>
+            <dd className="font-medium tabular-nums">{rupiah(toNumber(slip.payRate))}</dd>
+          </div>
+        </dl>
 
-      <section className="py-4">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">Penerimaan</h2>
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-stone-300 text-left text-stone-500">
-              <th className="py-1 pr-3 font-medium">Komponen</th>
-              <th className="py-1 pr-3 text-right font-medium">Qty</th>
-              <th className="py-1 pr-3 text-right font-medium">Tarif</th>
-              <th className="py-1 text-right font-medium">Jumlah</th>
-            </tr>
-          </thead>
-          <tbody>
-            {earnings.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-3 text-center text-stone-500">
-                  Tidak ada komponen penerimaan.
-                </td>
-              </tr>
-            ) : (
-              earnings.map((item) => (
-                <Row
-                  key={item.id}
-                  label={item.label}
-                  qty={toNumber(item.qty)}
-                  unit={item.unit}
-                  unitRate={toNumber(item.unitRate)}
-                  amount={toNumber(item.amount)}
-                />
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
+        <Separator />
 
-      <section className="pb-4">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">Potongan</h2>
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-stone-300 text-left text-stone-500">
-              <th className="py-1 pr-3 font-medium">Komponen</th>
-              <th className="py-1 pr-3 text-right font-medium">Qty</th>
-              <th className="py-1 pr-3 text-right font-medium">Tarif</th>
-              <th className="py-1 text-right font-medium">Jumlah</th>
-            </tr>
-          </thead>
-          <tbody>
-            {deductions.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="py-3 text-center text-stone-500">
-                  Tidak ada potongan.
-                </td>
-              </tr>
-            ) : (
-              deductions.map((item) => (
-                <Row
-                  key={item.id}
-                  label={item.label}
-                  qty={toNumber(item.qty)}
-                  unit={item.unit}
-                  unitRate={toNumber(item.unitRate)}
-                  amount={toNumber(item.amount)}
-                  negative
-                />
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold">Penerimaan</h2>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Komponen</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">Tarif</TableHead>
+                <TableHead className="text-right">Jumlah</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <ItemRows items={earnings} />
+            </TableBody>
+          </Table>
+        </section>
 
-      <section className="grid grid-cols-3 gap-3 border-t border-stone-300 pt-4 text-xs">
-        <div>
-          <p className="text-stone-500">Bruto</p>
-          <p className="text-sm font-semibold tabular-nums text-stone-900">{rupiah(toNumber(slip.gross))}</p>
-        </div>
-        <div>
-          <p className="text-stone-500">Potongan</p>
-          <p className="text-sm font-semibold tabular-nums text-stone-900">
-            {rupiah(toNumber(slip.totalDeductions))}
-          </p>
-        </div>
-        <div className="rounded-lg bg-stone-100 px-3 py-2">
-          <p className="text-stone-500">Diterima (net)</p>
-          <p className="text-base font-bold tabular-nums text-stone-900">{rupiah(toNumber(slip.net))}</p>
-        </div>
-      </section>
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold">Potongan</h2>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Komponen</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="hidden text-right sm:table-cell">Tarif</TableHead>
+                <TableHead className="text-right">Jumlah</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <ItemRows items={deductions} negative />
+            </TableBody>
+          </Table>
+        </section>
 
-      <footer className="mt-6 flex items-end justify-between gap-6 border-t border-stone-300 pt-3 text-[11px] text-stone-500">
-        <p>
+        <Separator />
+
+        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-muted-foreground">Bruto</dt>
+            <dd className="text-base font-semibold tabular-nums">{rupiah(toNumber(slip.gross))}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Potongan</dt>
+            <dd className="text-base font-semibold tabular-nums">
+              {rupiah(toNumber(slip.totalDeductions))}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Diterima (net)</dt>
+            <dd className="text-lg font-bold tabular-nums">{rupiah(toNumber(slip.net))}</dd>
+          </div>
+        </dl>
+
+        <CardDescription>
           Slip ini dibuat otomatis oleh sistem Gaji dan menyimpan snapshot tarif saat payroll dihitung.
-          {slip.paidAt ? ` Dibayar ${formatDateTimeID(slip.paidAt)}.` : ""}
-        </p>
-        <p className="whitespace-nowrap">Dicetak {formatDateTimeID(new Date())}</p>
-      </footer>
-    </article>
+          {slip.paidAt ? ` Dibayar ${formatDateTimeID(slip.paidAt)}.` : ""} Dicetak{" "}
+          {formatDateTimeID(new Date())}.
+        </CardDescription>
+      </CardContent>
+    </Card>
   );
 }

@@ -3,8 +3,12 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
-import { Badge, Card, EmptyState } from "@/components/ui";
-import { formatDateID, rupiah, toNumber } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { StatusBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { formatDateID, rupiah, toNumber } from "@/lib/format";
 
 export default async function EmployeePayslips() {
   const { employee } = await requireEmployee();
@@ -29,10 +33,7 @@ export default async function EmployeePayslips() {
   const slipIds = visible.map((row) => row.id);
 
   const items = slipIds.length
-    ? await db
-        .select()
-        .from(payslipItems)
-        .where(inArray(payslipItems.payslipId, slipIds))
+    ? await db.select().from(payslipItems).where(inArray(payslipItems.payslipId, slipIds))
     : [];
 
   const itemsBySlip = new Map<string, typeof items>();
@@ -45,66 +46,73 @@ export default async function EmployeePayslips() {
   return (
     <>
       <header>
-        <h1 className="text-lg font-semibold text-stone-900">Slip gaji</h1>
-        <p className="text-xs text-muted">Slip muncul setelah admin memfinalkan periode.</p>
+        <h1 className="text-lg font-semibold tracking-tight">Slip gaji</h1>
+        <p className="text-xs text-muted-foreground">Slip muncul setelah admin memfinalkan periode.</p>
       </header>
 
       {visible.length === 0 ? (
         <Card>
-          <EmptyState title="Belum ada slip gaji" hint="Slip akan muncul di sini setelah payroll difinalkan." />
+          <CardContent>
+            <EmptyState
+              title="Belum ada slip gaji"
+              hint="Slip akan muncul di sini setelah payroll difinalkan."
+            />
+          </CardContent>
         </Card>
       ) : (
         visible.map((slip) => (
           <Card key={slip.id}>
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-stone-900">
-                  {formatDateID(slip.periodStart)} – {formatDateID(slip.periodEnd)}
-                </p>
-                <p className="text-xs text-muted">
-                  {slip.paidAt ? `Dibayar ${formatDateID(slip.paidAt)}` : "Menunggu pembayaran"}
-                </p>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <CardTitle>
+                    {formatDateID(slip.periodStart)} – {formatDateID(slip.periodEnd)}
+                  </CardTitle>
+                  <CardDescription>
+                    {slip.paidAt ? `Dibayar ${formatDateID(slip.paidAt)}` : "Menunggu pembayaran"}
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <StatusBadge tone={slip.status === "paid" ? "good" : "info"}>
+                    {slip.status}
+                  </StatusBadge>
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/employee/slip/${slip.id}`}>Detail</Link>
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge tone={slip.status === "paid" ? "good" : "info"}>{slip.status}</Badge>
-                <Link
-                  href={`/employee/slip/${slip.id}`}
-                  className="rounded-lg border border-line bg-white px-2 py-1 text-xs font-medium text-stone-700"
-                >
-                  Detail
-                </Link>
-              </div>
-            </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-1">
+              <p className="text-2xl font-semibold tabular-nums">{rupiah(toNumber(slip.net))}</p>
+              <p className="text-xs text-muted-foreground">
+                bruto {rupiah(toNumber(slip.gross))} · potongan {rupiah(toNumber(slip.totalDeductions))}
+              </p>
 
-            <p className="mt-3 text-2xl font-semibold tabular-nums text-stone-900">
-              {rupiah(toNumber(slip.net))}
-            </p>
-            <p className="text-xs text-muted">
-              bruto {rupiah(toNumber(slip.gross))} · potongan {rupiah(toNumber(slip.totalDeductions))}
-            </p>
+              <Separator className="my-3" />
 
-            <ul className="mt-3 divide-y divide-line border-t border-line">
-              {(itemsBySlip.get(slip.id) ?? []).map((item) => (
-                <li key={item.id} className="flex items-center justify-between py-2 text-sm">
-                  <span className={item.kind === "kasbon" ? "text-red-700" : "text-stone-700"}>
-                    {item.label}
-                    <span className="ml-1 text-xs text-muted">
-                      {toNumber(item.qty)} {item.unit}
+              <ul className="flex flex-col divide-y">
+                {(itemsBySlip.get(slip.id) ?? []).map((item) => (
+                  <li key={item.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                    <span className={item.kind === "kasbon" ? "text-destructive" : undefined}>
+                      {item.label}
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        {toNumber(item.qty)} {item.unit}
+                      </span>
                     </span>
-                  </span>
-                  <span
-                    className={
-                      item.kind === "kasbon"
-                        ? "tabular-nums font-medium text-red-700"
-                        : "tabular-nums font-medium text-stone-900"
-                    }
-                  >
-                    {item.kind === "kasbon" ? "−" : ""}
-                    {rupiah(toNumber(item.amount))}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                    <span
+                      className={
+                        item.kind === "kasbon"
+                          ? "font-medium tabular-nums text-destructive"
+                          : "font-medium tabular-nums"
+                      }
+                    >
+                      {item.kind === "kasbon" ? "−" : ""}
+                      {rupiah(toNumber(item.amount))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
           </Card>
         ))
       )}

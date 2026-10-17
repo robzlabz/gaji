@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { account, user } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { normalizePhone } from "@/lib/utils";
+import { normalizePhone } from "@/lib/format";
 
 export class AccountError extends Error {}
 

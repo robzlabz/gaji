@@ -5,8 +5,36 @@ import { contracts, employees } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { createContractAction, terminateContractAction } from "../actions";
 import { Flash } from "@/components/flash";
-import { Badge, Card, EmptyState, Field, Stat, Table, Td, btnDanger, btnPrimary, inputClass } from "@/components/ui";
-import { CONTRACT_KIND_LABEL, formatDateID, localDateString, rupiah, toNumber } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { StatCard } from "@/components/stat-card";
+import { StatusBadge } from "@/components/status-badge";
+import { FormField, SelectInput } from "@/components/form-field";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { CONTRACT_KIND_LABEL, formatDateID, localDateString, rupiah, toNumber } from "@/lib/format";
+
+const KIND_OPTIONS = [
+  { value: "pkwt", label: "PKWT" },
+  { value: "probation", label: "Percobaan" },
+  { value: "pkwtt", label: "PKWTT" },
+  { value: "other", label: "Lainnya" },
+];
+
+const PAY_TYPE_OPTIONS = [
+  { value: "hourly", label: "Per jam" },
+  { value: "daily", label: "Per hari" },
+  { value: "monthly", label: "Per bulan" },
+  { value: "per_task", label: "Per tugas" },
+];
 
 export default async function ContractsPage({
   searchParams,
@@ -21,7 +49,7 @@ export default async function ContractsPage({
   alertDate.setUTCDate(alertDate.getUTCDate() + org.contractAlertDays);
   const alertLimit = alertDate.toISOString().slice(0, 10);
 
-  const base = db
+  const rows = await db
     .select({
       id: contracts.id,
       kind: contracts.kind,
@@ -51,11 +79,15 @@ export default async function ContractsPage({
     )
     .orderBy(contracts.endDate, employees.fullName);
 
-  const rows = await base;
   const renewing = renew ? rows.find((row) => row.id === renew) : undefined;
 
   const staff = await db
-    .select({ id: employees.id, fullName: employees.fullName, payType: employees.payType, payRate: employees.payRate })
+    .select({
+      id: employees.id,
+      fullName: employees.fullName,
+      payType: employees.payType,
+      payRate: employees.payRate,
+    })
     .from(employees)
     .where(and(eq(employees.orgId, org.id), eq(employees.isActive, true)))
     .orderBy(employees.fullName);
@@ -65,212 +97,258 @@ export default async function ContractsPage({
     (row) => row.status === "active" && row.endDate && row.endDate <= alertLimit,
   ).length;
 
+  const tabs = [
+    { key: "", label: "Semua" },
+    { key: "expiring", label: "Akan berakhir" },
+    { key: "ended", label: "Sudah selesai" },
+  ];
+  const activeFilter = filter ?? "";
+
   return (
     <>
       <header>
-        <h1 className="text-xl font-semibold text-stone-900">Kontrak</h1>
-        <p className="text-sm text-muted">Kelola masa berlaku kontrak dan perpanjangannya.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Kontrak</h1>
+        <p className="text-sm text-muted-foreground">
+          Kelola masa berlaku kontrak dan perpanjangannya.
+        </p>
       </header>
 
       <Flash ok={ok} err={err} />
 
       <div className="grid grid-cols-3 gap-3">
-        <Stat label="Kontrak aktif" value={activeCount} />
-        <Stat
+        <StatCard label="Kontrak aktif" value={activeCount} />
+        <StatCard
           label="Akan berakhir"
           value={expiringCount}
           hint={`≤ ${org.contractAlertDays} hari`}
-          tone={expiringCount > 0 ? "warn" : "default"}
         />
-        <Stat label="Total kontrak" value={rows.length} />
+        <StatCard label="Total kontrak" value={rows.length} hint="sesuai filter aktif" />
       </div>
 
-      <div className="flex gap-2 text-xs">
-        {[
-          { key: "", label: "Semua" },
-          { key: "expiring", label: "Akan berakhir" },
-          { key: "ended", label: "Sudah selesai" },
-        ].map((tab) => (
-          <Link
-            key={tab.key}
-            href={tab.key ? `/admin/kontrak?filter=${tab.key}` : "/admin/kontrak"}
-            className={
-              (filter ?? "") === tab.key
-                ? "rounded-full bg-brand px-3 py-1.5 font-semibold text-white"
-                : "rounded-full border border-line bg-white px-3 py-1.5 text-stone-600"
-            }
+      <div className="flex flex-wrap gap-2">
+        {tabs.map((tab) => (
+          <Button
+            key={tab.key || "all"}
+            asChild
+            size="sm"
+            variant={activeFilter === tab.key ? "secondary" : "outline"}
           >
-            {tab.label}
-          </Link>
+            <Link href={tab.key ? `/admin/kontrak?filter=${tab.key}` : "/admin/kontrak"}>
+              {tab.label}
+            </Link>
+          </Button>
         ))}
       </div>
 
       {renewing && (
-        <Card
-          title={`Perpanjang kontrak — ${renewing.employeeName}`}
-          subtitle={`Kontrak lama berakhir ${renewing.endDate ? formatDateID(renewing.endDate) : "tanpa batas"}. Kontrak baru akan menggantikannya.`}
-        >
-          <form action={createContractAction} className="grid gap-3 sm:grid-cols-3">
-            <input type="hidden" name="employeeId" value={renewing.employeeId} />
-            <input type="hidden" name="renewedFromId" value={renewing.id} />
-            <input type="hidden" name="backTo" value="/admin/kontrak" />
-            <Field label="Jenis kontrak">
-              <select name="kind" className={inputClass} defaultValue="pkwt">
-                <option value="pkwt">PKWT</option>
-                <option value="probation">Percobaan</option>
-                <option value="pkwtt">PKWTT</option>
-                <option value="other">Lainnya</option>
-              </select>
-            </Field>
-            <Field label="Mulai">
-              <input
-                type="date"
-                name="startDate"
-                className={inputClass}
-                defaultValue={renewing.endDate ?? today}
-                required
-              />
-            </Field>
-            <Field label="Berakhir">
-              <input type="date" name="endDate" className={inputClass} />
-            </Field>
-            <Field label="Tipe gaji">
-              <select name="payType" className={inputClass} defaultValue={renewing.payType}>
-                <option value="hourly">Per jam</option>
-                <option value="daily">Per hari</option>
-                <option value="monthly">Per bulan</option>
-                <option value="per_task">Per tugas</option>
-              </select>
-            </Field>
-            <Field label="Tarif">
-              <input
-                name="payRate"
-                className={inputClass}
-                inputMode="numeric"
-                defaultValue={Math.round(toNumber(renewing.payRate))}
-              />
-            </Field>
-            <div className="flex items-end">
-              <button type="submit" className={`${btnPrimary} w-full`}>
-                Simpan perpanjangan
-              </button>
-            </div>
-          </form>
+        <Card>
+          <CardHeader>
+            <CardTitle>Perpanjang kontrak — {renewing.employeeName}</CardTitle>
+            <CardDescription>
+              Kontrak lama berakhir{" "}
+              {renewing.endDate ? formatDateID(renewing.endDate) : "tanpa batas"}. Kontrak baru akan
+              menggantikannya.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form action={createContractAction} className="grid gap-3 sm:grid-cols-3">
+              <input type="hidden" name="employeeId" value={renewing.employeeId} />
+              <input type="hidden" name="renewedFromId" value={renewing.id} />
+              <input type="hidden" name="backTo" value="/admin/kontrak" />
+              <FormField label="Jenis kontrak">
+                <SelectInput name="kind" defaultValue="pkwt">
+                  {KIND_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField label="Mulai">
+                <Input
+                  type="date"
+                  name="startDate"
+                  defaultValue={renewing.endDate ?? today}
+                  required
+                />
+              </FormField>
+              <FormField label="Berakhir">
+                <Input type="date" name="endDate" />
+              </FormField>
+              <FormField label="Tipe gaji">
+                <SelectInput name="payType" defaultValue={renewing.payType}>
+                  {PAY_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField label="Tarif">
+                <Input
+                  name="payRate"
+                  inputMode="numeric"
+                  defaultValue={Math.round(toNumber(renewing.payRate))}
+                />
+              </FormField>
+              <div className="flex items-end">
+                <Button type="submit" className="w-full">
+                  Simpan perpanjangan
+                </Button>
+              </div>
+            </form>
+          </CardContent>
         </Card>
       )}
 
-      <Card title="Daftar kontrak">
-        {rows.length === 0 ? (
-          <EmptyState title="Belum ada kontrak" hint="Tambahkan kontrak dari halaman detail karyawan." />
-        ) : (
-          <Table head={["Karyawan", "Jenis", "Mulai", "Berakhir", "Tarif", "Status", ""]}>
-            {rows.map((row) => {
-              const days = row.endDate
-                ? Math.ceil(
-                    (new Date(`${row.endDate}T00:00:00Z`).getTime() -
-                      new Date(`${today}T00:00:00Z`).getTime()) /
-                      86_400_000,
-                  )
-                : null;
-              const soon = row.status === "active" && days !== null && days <= org.contractAlertDays;
+      <Card>
+        <CardHeader>
+          <CardTitle>Daftar kontrak</CardTitle>
+          <CardDescription>Baris kuning menandakan kontrak yang mendekati berakhir.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {rows.length === 0 ? (
+            <EmptyState
+              title="Belum ada kontrak"
+              hint="Tambahkan kontrak dari halaman detail karyawan."
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Karyawan</TableHead>
+                  <TableHead>Jenis</TableHead>
+                  <TableHead>Mulai</TableHead>
+                  <TableHead>Berakhir</TableHead>
+                  <TableHead>Tarif</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => {
+                  const days = row.endDate
+                    ? Math.ceil(
+                        (new Date(`${row.endDate}T00:00:00Z`).getTime() -
+                          new Date(`${today}T00:00:00Z`).getTime()) /
+                          86_400_000,
+                      )
+                    : null;
+                  const soon = row.status === "active" && days !== null && days <= org.contractAlertDays;
 
-              return (
-                <tr key={row.id} className={soon ? "bg-amber-50/50" : undefined}>
-                  <Td>
-                    <Link href={`/admin/karyawan/${row.employeeId}`} className="font-medium text-stone-900">
-                      {row.employeeName}
-                    </Link>
-                  </Td>
-                  <Td className="text-stone-600">{CONTRACT_KIND_LABEL[row.kind] ?? row.kind}</Td>
-                  <Td className="tabular-nums text-stone-600">{formatDateID(row.startDate)}</Td>
-                  <Td className="tabular-nums text-stone-600">
-                    {row.endDate ? formatDateID(row.endDate) : "—"}
-                    {soon && (
-                      <span className="ml-2 text-xs text-amber-700">
-                        {days !== null && days < 0 ? "sudah lewat" : `${days} hari lagi`}
-                      </span>
-                    )}
-                  </Td>
-                  <Td className="tabular-nums">{rupiah(toNumber(row.payRate))}</Td>
-                  <Td>
-                    <Badge
-                      tone={
-                        row.status === "active"
-                          ? "good"
-                          : row.status === "renewed"
-                            ? "info"
-                            : row.status === "terminated"
-                              ? "default"
-                              : "bad"
-                      }
-                    >
-                      {row.status}
-                    </Badge>
-                  </Td>
-                  <Td>
-                    <div className="flex gap-2">
-                      {row.status === "active" && (
-                        <Link href={`/admin/kontrak?renew=${row.id}`} className="text-xs font-medium text-brand">
-                          Perpanjang
+                  return (
+                    <TableRow key={row.id} className={soon ? "bg-amber-50/60 dark:bg-amber-500/10" : undefined}>
+                      <TableCell>
+                        <Link
+                          href={`/admin/karyawan/${row.employeeId}`}
+                          className="font-medium hover:underline"
+                        >
+                          {row.employeeName}
                         </Link>
-                      )}
-                      {row.status === "active" && (
-                        <form action={terminateContractAction}>
-                          <input type="hidden" name="contractId" value={row.id} />
-                          <input type="hidden" name="backTo" value="/admin/kontrak" />
-                          <button type="submit" className={`${btnDanger} px-2 py-1 text-xs`}>
-                            Akhiri
-                          </button>
-                        </form>
-                      )}
-                    </div>
-                  </Td>
-                </tr>
-              );
-            })}
-          </Table>
-        )}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {CONTRACT_KIND_LABEL[row.kind] ?? row.kind}
+                      </TableCell>
+                      <TableCell className="tabular-nums text-muted-foreground">
+                        {formatDateID(row.startDate)}
+                      </TableCell>
+                      <TableCell className="tabular-nums text-muted-foreground">
+                        <span className="flex flex-col items-start gap-1">
+                          <span>{row.endDate ? formatDateID(row.endDate) : "—"}</span>
+                          {soon && (
+                            <StatusBadge tone={days !== null && days < 0 ? "bad" : "warn"}>
+                              {days !== null && days < 0 ? "sudah lewat" : `${days} hari lagi`}
+                            </StatusBadge>
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell className="tabular-nums">{rupiah(toNumber(row.payRate))}</TableCell>
+                      <TableCell>
+                        <StatusBadge
+                          tone={
+                            row.status === "active"
+                              ? "good"
+                              : row.status === "renewed"
+                                ? "info"
+                                : row.status === "terminated"
+                                  ? "default"
+                                  : "bad"
+                          }
+                        >
+                          {row.status}
+                        </StatusBadge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {row.status === "active" && (
+                            <Button asChild variant="link" size="sm" className="px-0">
+                              <Link href={`/admin/kontrak?renew=${row.id}`}>Perpanjang</Link>
+                            </Button>
+                          )}
+                          {row.status === "active" && (
+                            <form action={terminateContractAction}>
+                              <input type="hidden" name="contractId" value={row.id} />
+                              <input type="hidden" name="backTo" value="/admin/kontrak" />
+                              <Button type="submit" variant="destructive" size="xs">
+                                Akhiri
+                              </Button>
+                            </form>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
       </Card>
 
-      <Card title="Tambah kontrak baru" subtitle="Untuk karyawan yang belum punya kontrak di sistem.">
-        <form action={createContractAction} className="grid gap-3 sm:grid-cols-3">
-          <input type="hidden" name="backTo" value="/admin/kontrak" />
-          <Field label="Karyawan">
-            <select name="employeeId" className={inputClass} required>
-              <option value="">Pilih karyawan…</option>
-              {staff.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.fullName}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Jenis kontrak">
-            <select name="kind" className={inputClass} defaultValue="pkwt">
-              <option value="pkwt">PKWT</option>
-              <option value="probation">Percobaan</option>
-              <option value="pkwtt">PKWTT</option>
-              <option value="other">Lainnya</option>
-            </select>
-          </Field>
-          <Field label="Nomor kontrak">
-            <input name="contractNo" className={inputClass} placeholder="001/PKWT/I/2026" />
-          </Field>
-          <Field label="Mulai">
-            <input type="date" name="startDate" className={inputClass} defaultValue={today} required />
-          </Field>
-          <Field label="Berakhir">
-            <input type="date" name="endDate" className={inputClass} />
-          </Field>
-          <Field label="Tarif">
-            <input name="payRate" className={inputClass} inputMode="numeric" placeholder="25000" />
-          </Field>
-          <div className="sm:col-span-3">
-            <button type="submit" className={btnPrimary}>
-              Simpan kontrak
-            </button>
-          </div>
-        </form>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tambah kontrak baru</CardTitle>
+          <CardDescription>Untuk karyawan yang belum punya kontrak di sistem.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={createContractAction} className="grid gap-3 sm:grid-cols-3">
+            <input type="hidden" name="backTo" value="/admin/kontrak" />
+            <FormField label="Karyawan">
+              <SelectInput name="employeeId" required defaultValue="">
+                <option value="">Pilih karyawan…</option>
+                {staff.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.fullName}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Jenis kontrak">
+              <SelectInput name="kind" defaultValue="pkwt">
+                {KIND_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Nomor kontrak">
+              <Input name="contractNo" placeholder="001/PKWT/I/2026" />
+            </FormField>
+            <FormField label="Mulai">
+              <Input type="date" name="startDate" defaultValue={today} required />
+            </FormField>
+            <FormField label="Berakhir">
+              <Input type="date" name="endDate" />
+            </FormField>
+            <FormField label="Tarif">
+              <Input name="payRate" inputMode="numeric" placeholder="25000" />
+            </FormField>
+            <div className="sm:col-span-3">
+              <Button type="submit">Simpan kontrak</Button>
+            </div>
+          </form>
+        </CardContent>
       </Card>
     </>
   );

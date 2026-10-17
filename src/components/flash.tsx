@@ -1,15 +1,25 @@
+import { CircleCheckIcon, CircleAlertIcon } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+/** Pesan hasil aksi (dari query string ?ok / ?err) memakai Alert shadcn. */
 export function Flash({ ok, err }: { ok?: string; err?: string }) {
   if (!ok && !err) return null;
+
+  if (err) {
+    return (
+      <Alert variant="destructive">
+        <CircleAlertIcon />
+        <AlertTitle>Gagal</AlertTitle>
+        <AlertDescription>{err}</AlertDescription>
+      </Alert>
+    );
+  }
+
   return (
-    <div
-      className={
-        err
-          ? "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-          : "rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-      }
-      role="status"
-    >
-      {err ?? ok}
-    </div>
+    <Alert>
+      <CircleCheckIcon />
+      <AlertTitle>Berhasil</AlertTitle>
+      <AlertDescription>{ok}</AlertDescription>
+    </Alert>
   );
 }

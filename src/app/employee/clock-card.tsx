@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { CameraIcon, MapPinIcon } from "lucide-react";
 import { clockInAction, clockOutAction } from "@/app/employee/actions";
-import { btnPrimary, inputClass } from "@/components/ui";
+import { FormField } from "@/components/form-field";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 type OpenEntry = {
   clockInAtISO: string;
@@ -63,7 +66,7 @@ export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
   return (
     <form
       action={openEntry ? clockOutAction : clockInAction}
-      className="space-y-3"
+      className="flex flex-col gap-3"
       onSubmit={() => setBusy(true)}
     >
       <input type="hidden" name="lat" value={coords?.lat ?? ""} />
@@ -71,45 +74,44 @@ export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
       <input type="hidden" name="accuracy" value={coords?.accuracy ?? ""} />
       <input type="hidden" name="photo" value={photo} />
 
-      <div className="rounded-xl border border-line bg-stone-50/70 p-3">
-        <p className="text-xs text-muted">
+      <div className="rounded-xl border bg-muted/40 p-3">
+        <p className="text-xs text-muted-foreground">
           Foto &amp; lokasi opsional. Kalau diizinkan, lokasi diambil sekali saat tombol ditekan.
         </p>
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <label className="cursor-pointer rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-stone-700">
-            {photo ? "Ganti foto" : "Ambil foto"}
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                setBusy(true);
-                try {
-                  setPhoto(await fileToDataUrl(file));
-                } catch {
-                  setStatus("Gagal memproses foto.");
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            />
-          </label>
+          <Button asChild variant="outline" size="sm">
+            <label className="cursor-pointer">
+              <CameraIcon />
+              {photo ? "Ganti foto" : "Ambil foto"}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  setBusy(true);
+                  try {
+                    setPhoto(await fileToDataUrl(file));
+                  } catch {
+                    setStatus("Gagal memproses foto.");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              />
+            </label>
+          </Button>
 
-          <button
-            type="button"
-            onClick={prepare}
-            className="rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-stone-700"
-            disabled={busy}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={prepare} disabled={busy}>
+            <MapPinIcon />
             {coords ? "Perbarui lokasi" : "Ambil lokasi"}
-          </button>
+          </Button>
 
           {coords && (
-            <span className="text-xs text-emerald-700">
+            <span className="text-xs text-muted-foreground">
               {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)} (±{Math.round(coords.accuracy)}m)
             </span>
           )}
@@ -117,49 +119,43 @@ export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
 
         {photo && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photo} alt="Pratinjau foto absensi" className="mt-2 h-28 w-28 rounded-lg border border-line object-cover" />
+          <img
+            src={photo}
+            alt="Pratinjau foto absensi"
+            className="mt-2 h-28 w-28 rounded-lg border object-cover"
+          />
         )}
       </div>
 
       {openEntry && (
         <div className="grid gap-2 sm:grid-cols-3">
-          <label className="text-xs text-stone-600">
-            Istirahat (menit)
-            <input
-              name="breakMinutes"
-              defaultValue={openEntry.breakMinutes}
-              className={`${inputClass} mt-1`}
-              inputMode="numeric"
-            />
-          </label>
-          <label className="text-xs text-stone-600">
-            Lembur (menit)
-            <input
+          <FormField label="Istirahat (menit)">
+            <Input name="breakMinutes" defaultValue={openEntry.breakMinutes} inputMode="numeric" />
+          </FormField>
+          <FormField label="Lembur (menit)">
+            <Input
               name="overtimeMinutes"
               defaultValue={openEntry.overtimeMinutes}
-              className={`${inputClass} mt-1`}
               inputMode="numeric"
             />
-          </label>
-          <label className="text-xs text-stone-600">
-            Catatan lembur
-            <input
+          </FormField>
+          <FormField label="Catatan lembur">
+            <Input
               name="overtimeNote"
               defaultValue={openEntry.overtimeNote ?? ""}
-              className={`${inputClass} mt-1`}
               placeholder="opsional"
               onChange={(event) => setNote(event.target.value)}
               value={note}
             />
-          </label>
+          </FormField>
         </div>
       )}
 
-      <button type="submit" className={`${btnPrimary} w-full py-3`} disabled={busy}>
+      <Button type="submit" size="lg" className="w-full" disabled={busy}>
         {busy ? "Menyimpan…" : openEntry ? "Clock out" : "Clock in"}
-      </button>
+      </Button>
 
-      {status && <p className="text-xs text-muted">{status}</p>}
+      {status && <p className="text-xs text-muted-foreground">{status}</p>}
     </form>
   );
 }

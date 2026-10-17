@@ -4,8 +4,11 @@ import { workTasks } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
 import { markTaskDoneAction } from "../actions";
 import { Flash } from "@/components/flash";
-import { Badge, Card, EmptyState, btnPrimary } from "@/components/ui";
-import { formatDateID, rupiah, toNumber } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { StatusBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatDateID, rupiah, toNumber } from "@/lib/format";
 
 export default async function EmployeeTasks({
   searchParams,
@@ -29,67 +32,90 @@ export default async function EmployeeTasks({
   return (
     <>
       <header>
-        <h1 className="text-lg font-semibold text-stone-900">Tugas saya</h1>
-        <p className="text-xs text-muted">Tandai selesai setelah pekerjaan rampung. Admin yang menyetujui.</p>
+        <h1 className="text-lg font-semibold tracking-tight">Tugas saya</h1>
+        <p className="text-xs text-muted-foreground">
+          Tandai selesai setelah pekerjaan rampung. Admin yang menyetujui.
+        </p>
       </header>
 
       <Flash ok={ok} err={err} />
 
-      <Card title="Belum selesai" subtitle={`${open.length} tugas`}>
-        {open.length === 0 ? (
-          <EmptyState title="Tidak ada tugas aktif" />
-        ) : (
-          <ul className="space-y-2">
-            {open.map((task) => (
-              <li key={task.id} className="rounded-xl border border-line p-3">
-                <p className="text-sm font-medium text-stone-900">{task.title}</p>
-                <p className="text-xs text-muted">
-                  {toNumber(task.qty)} {task.unit} × {rupiah(toNumber(task.unitRate))} ={" "}
-                  {rupiah(toNumber(task.qty) * toNumber(task.unitRate))} · {formatDateID(task.workDate)}
-                </p>
-                <form action={markTaskDoneAction} className="mt-2">
-                  <input type="hidden" name="taskId" value={task.id} />
-                  <button type="submit" className={`${btnPrimary} px-3 py-1.5 text-xs`}>
-                    Tandai selesai
-                  </button>
-                </form>
-              </li>
-            ))}
-          </ul>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Belum selesai</CardTitle>
+          <CardDescription>{open.length} tugas</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {open.length === 0 ? (
+            <EmptyState title="Tidak ada tugas aktif" />
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {open.map((task) => (
+                <li key={task.id} className="rounded-xl border p-3">
+                  <p className="text-sm font-medium">{task.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {toNumber(task.qty)} {task.unit} × {rupiah(toNumber(task.unitRate))} ={" "}
+                    {rupiah(toNumber(task.qty) * toNumber(task.unitRate))} ·{" "}
+                    {formatDateID(task.workDate)}
+                  </p>
+                  <form action={markTaskDoneAction} className="mt-2">
+                    <input type="hidden" name="taskId" value={task.id} />
+                    <Button type="submit" size="sm">
+                      Tandai selesai
+                    </Button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
       </Card>
 
       {waiting.length > 0 && (
-        <Card title="Menunggu approval">
-          <ul className="space-y-2">
-            {waiting.map((task) => (
-              <li key={task.id} className="flex items-center justify-between text-sm">
-                <span className="text-stone-800">{task.title}</span>
-                <Badge tone="warn">menunggu</Badge>
-              </li>
-            ))}
-          </ul>
+        <Card>
+          <CardHeader>
+            <CardTitle>Menunggu approval</CardTitle>
+            <CardDescription>{waiting.length} tugas sudah ditandai selesai</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="flex flex-col gap-2">
+              {waiting.map((task) => (
+                <li key={task.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span>{task.title}</span>
+                  <StatusBadge tone="warn">menunggu</StatusBadge>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
         </Card>
       )}
 
-      <Card title="Selesai">
-        {done.length === 0 ? (
-          <EmptyState title="Belum ada tugas selesai" />
-        ) : (
-          <ul className="divide-y divide-line">
-            {done.map((task) => (
-              <li key={task.id} className="flex items-center justify-between py-2 text-sm">
-                <span className="text-stone-700">{task.title}</span>
-                <span className="flex items-center gap-2">
-                  <span className="tabular-nums text-xs text-muted">
-                    {rupiah(toNumber(task.qty) * toNumber(task.unitRate))}
+      <Card>
+        <CardHeader>
+          <CardTitle>Selesai</CardTitle>
+          <CardDescription>{done.length} tugas sudah diputuskan admin</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {done.length === 0 ? (
+            <EmptyState title="Belum ada tugas selesai" />
+          ) : (
+            <ul className="flex flex-col divide-y">
+              {done.map((task) => (
+                <li key={task.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <span className="min-w-0 truncate">{task.title}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="tabular-nums text-xs text-muted-foreground">
+                      {rupiah(toNumber(task.qty) * toNumber(task.unitRate))}
+                    </span>
+                    <StatusBadge tone={task.status === "approved" ? "good" : "bad"}>
+                      {task.status}
+                    </StatusBadge>
                   </span>
-                  <Badge tone={task.status === "approved" ? "good" : "bad"}>{task.status}</Badge>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
       </Card>
     </>
   );

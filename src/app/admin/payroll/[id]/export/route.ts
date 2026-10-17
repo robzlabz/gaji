@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { PAY_TYPE_LABEL, toNumber } from "@/lib/utils";
+import { PAY_TYPE_LABEL, toNumber } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 

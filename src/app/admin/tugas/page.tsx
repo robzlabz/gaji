@@ -5,8 +5,21 @@ import { employees, workTasks } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { createTaskAction, decideTaskAction } from "../actions";
 import { Flash } from "@/components/flash";
-import { Badge, Card, EmptyState, Field, Table, Td, btnDanger, btnPrimary, inputClass } from "@/components/ui";
-import { formatDateID, localDateString, rupiah, toNumber } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { StatusBadge } from "@/components/status-badge";
+import { FormField, SelectInput } from "@/components/form-field";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { formatDateID, localDateString, rupiah, toNumber } from "@/lib/format";
 
 export default async function TasksPage({
   searchParams,
@@ -47,126 +60,163 @@ export default async function TasksPage({
   return (
     <>
       <header>
-        <h1 className="text-xl font-semibold text-stone-900">Tugas</h1>
-        <p className="text-sm text-muted">
-          Dipakai untuk karyawan bertipe <strong>per tugas</strong>. Hanya tugas approved masuk payroll.
+        <h1 className="text-2xl font-semibold tracking-tight">Tugas</h1>
+        <p className="text-sm text-muted-foreground">
+          Dipakai untuk karyawan bertipe per tugas. Hanya tugas approved yang masuk payroll.
         </p>
       </header>
 
       <Flash ok={ok} err={err} />
 
-      <Card title="Buat tugas">
-        <form action={createTaskAction} className="grid gap-3 sm:grid-cols-3">
-          <Field label="Judul tugas" className="sm:col-span-2">
-            <input name="title" className={inputClass} placeholder="Potong 20 pcs bahan kaos" required />
-          </Field>
-          <Field label="Karyawan" hint="Kosongkan bila belum ditentukan">
-            <select name="employeeId" className={inputClass} defaultValue="">
-              <option value="">— belum ditentukan —</option>
-              {staff.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.fullName}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Jumlah (qty)">
-            <input name="qty" className={inputClass} inputMode="decimal" defaultValue="1" />
-          </Field>
-          <Field label="Satuan">
-            <input name="unit" className={inputClass} defaultValue="tugas" />
-          </Field>
-          <Field label="Tarif per satuan (Rp)">
-            <input name="unitRate" className={inputClass} inputMode="numeric" placeholder="15000" required />
-          </Field>
-          <Field label="Tanggal kerja">
-            <input type="date" name="workDate" className={inputClass} defaultValue={today} />
-          </Field>
-          <Field label="Deskripsi" className="sm:col-span-2">
-            <input name="description" className={inputClass} placeholder="opsional" />
-          </Field>
-          <div className="flex items-end">
-            <button type="submit" className={`${btnPrimary} w-full`}>
-              Simpan tugas
-            </button>
-          </div>
-        </form>
+      <Card>
+        <CardHeader>
+          <CardTitle>Buat tugas</CardTitle>
+          <CardDescription>Tentukan jumlah, satuan, dan tarif per satuan.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={createTaskAction} className="grid gap-3 sm:grid-cols-3">
+            <FormField label="Judul tugas" className="sm:col-span-2">
+              <Input name="title" placeholder="Potong 20 pcs bahan kaos" required />
+            </FormField>
+            <FormField label="Karyawan" hint="Kosongkan bila belum ditentukan">
+              <SelectInput name="employeeId" defaultValue="">
+                <option value="">— belum ditentukan —</option>
+                {staff.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.fullName}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Jumlah (qty)">
+              <Input name="qty" inputMode="decimal" defaultValue="1" />
+            </FormField>
+            <FormField label="Satuan">
+              <Input name="unit" defaultValue="tugas" />
+            </FormField>
+            <FormField label="Tarif per satuan (Rp)">
+              <Input name="unitRate" inputMode="numeric" placeholder="15000" required />
+            </FormField>
+            <FormField label="Tanggal kerja">
+              <Input type="date" name="workDate" defaultValue={today} />
+            </FormField>
+            <FormField label="Deskripsi" className="sm:col-span-2">
+              <Input name="description" placeholder="opsional" />
+            </FormField>
+            <div className="flex items-end">
+              <Button type="submit" className="w-full">
+                Simpan tugas
+              </Button>
+            </div>
+          </form>
+        </CardContent>
       </Card>
 
       {pending.length > 0 && (
-        <Card title="Perlu persetujuan" subtitle="Tugas yang sudah dikerjakan karyawan menunggu approval.">
-          <div className="space-y-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Perlu persetujuan</CardTitle>
+            <CardDescription>
+              Tugas yang sudah dikerjakan karyawan menunggu approval.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
             {pending.map((task) => (
               <form
                 key={task.id}
                 action={decideTaskAction}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-white px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2"
               >
                 <input type="hidden" name="taskId" value={task.id} />
-                <div>
-                  <p className="text-sm font-medium text-stone-900">{task.title}</p>
-                  <p className="text-xs text-muted">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{task.title}</p>
+                  <p className="text-xs text-muted-foreground">
                     {task.employeeName ?? "belum ada karyawan"} · {toNumber(task.qty)} {task.unit} ×{" "}
                     {rupiah(toNumber(task.unitRate))} ={" "}
-                    {rupiah(toNumber(task.qty) * toNumber(task.unitRate))} · {formatDateID(task.workDate)}
+                    {rupiah(toNumber(task.qty) * toNumber(task.unitRate))} ·{" "}
+                    {formatDateID(task.workDate)}
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <Badge tone={task.status === "done" ? "warn" : "default"}>{task.status}</Badge>
-                  <button type="submit" name="decision" value="approve" className={`${btnPrimary} h-8 px-3 text-xs`}>
+                <div className="flex items-center gap-2">
+                  <StatusBadge tone={task.status === "done" ? "warn" : "default"}>
+                    {task.status}
+                  </StatusBadge>
+                  <Button type="submit" name="decision" value="approve" size="sm">
                     Setujui
-                  </button>
-                  <button type="submit" name="decision" value="reject" className={`${btnDanger} h-8 px-3 text-xs`}>
+                  </Button>
+                  <Button type="submit" name="decision" value="reject" variant="destructive" size="sm">
                     Tolak
-                  </button>
+                  </Button>
                 </div>
               </form>
             ))}
-          </div>
+          </CardContent>
         </Card>
       )}
 
-      <Card title="Semua tugas">
-        {tasks.length === 0 ? (
-          <EmptyState title="Belum ada tugas" />
-        ) : (
-          <Table head={["Tugas", "Karyawan", "Qty", "Nilai", "Tanggal", "Status"]}>
-            {tasks.map((task) => (
-              <tr key={task.id}>
-                <Td className="font-medium text-stone-900">{task.title}</Td>
-                <Td>
-                  {task.employeeId ? (
-                    <Link href={`/admin/karyawan/${task.employeeId}`} className="text-brand">
-                      {task.employeeName}
-                    </Link>
-                  ) : (
-                    <span className="text-muted">—</span>
-                  )}
-                </Td>
-                <Td className="tabular-nums text-stone-600">
-                  {toNumber(task.qty)} {task.unit}
-                </Td>
-                <Td className="tabular-nums">{rupiah(toNumber(task.qty) * toNumber(task.unitRate))}</Td>
-                <Td className="tabular-nums text-stone-600">{formatDateID(task.workDate)}</Td>
-                <Td>
-                  <Badge
-                    tone={
-                      task.status === "approved"
-                        ? "good"
-                        : task.status === "rejected"
-                          ? "bad"
-                          : task.status === "done"
-                            ? "warn"
-                            : "default"
-                    }
-                  >
-                    {task.status}
-                  </Badge>
-                </Td>
-              </tr>
-            ))}
-          </Table>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Semua tugas</CardTitle>
+          <CardDescription>{tasks.length} tugas terakhir</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {tasks.length === 0 ? (
+            <EmptyState title="Belum ada tugas" />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tugas</TableHead>
+                  <TableHead>Karyawan</TableHead>
+                  <TableHead>Qty</TableHead>
+                  <TableHead>Nilai</TableHead>
+                  <TableHead>Tanggal</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tasks.map((task) => (
+                  <TableRow key={task.id}>
+                    <TableCell className="font-medium">{task.title}</TableCell>
+                    <TableCell>
+                      {task.employeeId ? (
+                        <Link href={`/admin/karyawan/${task.employeeId}`} className="hover:underline">
+                          {task.employeeName}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">
+                      {toNumber(task.qty)} {task.unit}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {rupiah(toNumber(task.qty) * toNumber(task.unitRate))}
+                    </TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">
+                      {formatDateID(task.workDate)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge
+                        tone={
+                          task.status === "approved"
+                            ? "good"
+                            : task.status === "rejected"
+                              ? "bad"
+                              : task.status === "done"
+                                ? "warn"
+                                : "default"
+                        }
+                      >
+                        {task.status}
+                      </StatusBadge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
       </Card>
     </>
   );

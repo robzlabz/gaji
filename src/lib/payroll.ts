@@ -1,5 +1,5 @@
 import { countWorkDays, type Period } from "./period";
-import { toNumber } from "./utils";
+import { toNumber } from "./format";
 
 export type PayLineKind = "regular" | "overtime" | "task" | "kasbon" | "other";
 

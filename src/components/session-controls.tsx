@@ -2,17 +2,26 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { LogOutIcon } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { btnGhost } from "@/components/ui";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export function SignOutButton() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   return (
-    <button
+    <Button
       type="button"
-      className={btnGhost}
+      variant="outline"
+      size="sm"
       disabled={loading}
       onClick={async () => {
         setLoading(true);
@@ -21,33 +30,44 @@ export function SignOutButton() {
         router.refresh();
       }}
     >
+      <LogOutIcon />
       {loading ? "Keluar…" : "Keluar"}
-    </button>
+    </Button>
   );
 }
 
-export function OrgSwitcher({ orgs, activeId }: { orgs: { id: string; name: string }[]; activeId: string }) {
+export function OrgSwitcher({
+  orgs,
+  activeId,
+}: {
+  orgs: { id: string; name: string }[];
+  activeId: string;
+}) {
   const router = useRouter();
   if (orgs.length <= 1) return null;
 
   return (
-    <select
-      className="rounded-lg border border-line bg-white px-2 py-1.5 text-xs text-stone-700"
+    <Select
       value={activeId}
-      onChange={async (event) => {
+      onValueChange={async (orgId) => {
         await fetch("/api/switch-org", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ orgId: event.target.value }),
+          body: JSON.stringify({ orgId }),
         });
         router.refresh();
       }}
     >
-      {orgs.map((org) => (
-        <option key={org.id} value={org.id}>
-          {org.name}
-        </option>
-      ))}
-    </select>
+      <SelectTrigger className="w-full" size="sm" aria-label="Pilih organisasi">
+        <SelectValue placeholder="Pilih organisasi" />
+      </SelectTrigger>
+      <SelectContent>
+        {orgs.map((org) => (
+          <SelectItem key={org.id} value={org.id}>
+            {org.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

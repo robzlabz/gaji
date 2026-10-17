@@ -5,7 +5,10 @@ import { timeEntries } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
 import { ClockCard } from "./clock-card";
 import { Flash } from "@/components/flash";
-import { Badge, Card, EmptyState, Stat } from "@/components/ui";
+import { EmptyState } from "@/components/empty-state";
+import { StatCard } from "@/components/stat-card";
+import { StatusBadge } from "@/components/status-badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   formatDateID,
   formatTimeID,
@@ -13,7 +16,7 @@ import {
   minutesToHoursLabel,
   rupiah,
   toNumber,
-} from "@/lib/utils";
+} from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
 import { workedMinutes } from "@/lib/payroll";
 
@@ -79,81 +82,93 @@ export default async function EmployeeHome({
     <>
       <Flash ok={ok} err={err} />
 
-      <Card
-        title={openEntry ? "Sesi berjalan" : "Mulai kerja"}
-        subtitle={
-          openEntry
-            ? `Clock in ${formatTimeID(openEntry.clockInAt)} · ${formatDateID(openEntry.workDate)}`
-            : `Hari ini ${formatDateID(today)} · ${org.timezone}`
-        }
-      >
-        <ClockCard
-          openEntry={
-            openEntry
-              ? {
-                  clockInAtISO: openEntry.clockInAt.toISOString(),
-                  breakMinutes: openEntry.breakMinutes,
-                  overtimeMinutes: openEntry.overtimeMinutes,
-                  overtimeNote: openEntry.overtimeNote,
-                }
-              : null
-          }
-        />
+      <Card>
+        <CardHeader>
+          <CardTitle>{openEntry ? "Sesi berjalan" : "Mulai kerja"}</CardTitle>
+          <CardDescription>
+            {openEntry
+              ? `Clock in ${formatTimeID(openEntry.clockInAt)} · ${formatDateID(openEntry.workDate)}`
+              : `Hari ini ${formatDateID(today)} · ${org.timezone}`}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ClockCard
+            openEntry={
+              openEntry
+                ? {
+                    clockInAtISO: openEntry.clockInAt.toISOString(),
+                    breakMinutes: openEntry.breakMinutes,
+                    overtimeMinutes: openEntry.overtimeMinutes,
+                    overtimeNote: openEntry.overtimeNote,
+                  }
+                : null
+            }
+          />
+        </CardContent>
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
-        <Stat
+        <StatCard
           label="Jam disetujui"
           value={minutesToHoursLabel(approvedMinutes)}
           hint={periodLabel(period)}
         />
-        <Stat
+        <StatCard
           label={estimate === null ? "Periode" : "Estimasi gaji"}
           value={estimate === null ? periodLabel(period) : rupiah(estimate)}
           hint={estimate === null ? "dihitung dari tugas approved" : "dari data approved"}
-          tone="good"
         />
       </div>
 
-      <Card title="Hari ini">
-        {todayEntries.length === 0 ? (
-          <EmptyState title="Belum ada absensi hari ini" hint="Tekan Clock in untuk mulai." />
-        ) : (
-          <ul className="space-y-2">
-            {todayEntries.map((entry) => (
-              <li key={entry.id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm">
-                <span className="tabular-nums text-stone-700">
-                  {formatTimeID(entry.clockInAt)} – {entry.clockOutAt ? formatTimeID(entry.clockOutAt) : "…"}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="text-xs text-muted">
-                    {minutesToHoursLabel(
-                      workedMinutes({
-                        id: entry.id,
-                        workDate: entry.workDate,
-                        clockInAt: entry.clockInAt,
-                        clockOutAt: entry.clockOutAt,
-                        breakMinutes: entry.breakMinutes,
-                        overtimeMinutes: entry.overtimeMinutes,
-                      }),
-                    )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Hari ini</CardTitle>
+          <CardDescription>Absensi yang tercatat hari ini</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {todayEntries.length === 0 ? (
+            <EmptyState title="Belum ada absensi hari ini" hint="Tekan Clock in untuk mulai." />
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {todayEntries.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm"
+                >
+                  <span className="tabular-nums">
+                    {formatTimeID(entry.clockInAt)} –{" "}
+                    {entry.clockOutAt ? formatTimeID(entry.clockOutAt) : "…"}
                   </span>
-                  <Badge
-                    tone={entry.status === "approved" ? "good" : entry.status === "rejected" ? "bad" : "warn"}
-                  >
-                    {entry.status}
-                  </Badge>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {minutesToHoursLabel(
+                        workedMinutes({
+                          id: entry.id,
+                          workDate: entry.workDate,
+                          clockInAt: entry.clockInAt,
+                          clockOutAt: entry.clockOutAt,
+                          breakMinutes: entry.breakMinutes,
+                          overtimeMinutes: entry.overtimeMinutes,
+                        }),
+                      )}
+                    </span>
+                    <StatusBadge
+                      tone={entry.status === "approved" ? "good" : entry.status === "rejected" ? "bad" : "warn"}
+                    >
+                      {entry.status}
+                    </StatusBadge>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
       </Card>
 
       {pending.length > 0 && (
-        <p className="text-center text-xs text-muted">
+        <p className="text-center text-xs text-muted-foreground">
           {pending.length} absensi menunggu approval admin.{" "}
-          <Link href="/employee/absensi" className="text-brand">
+          <Link href="/employee/absensi" className="font-medium underline underline-offset-4">
             Lihat riwayat
           </Link>
         </p>

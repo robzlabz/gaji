@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { cashAdvances, employees, timeEntries, workTasks } from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
 import type { Period } from "@/lib/period";
-import { toNumber } from "@/lib/utils";
+import { toNumber } from "@/lib/format";
 
 export type PayrollRow = {
   employee: typeof employees.$inferSelect;

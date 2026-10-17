@@ -1,11 +1,13 @@
 "use client";
 
-import { btnPrimary } from "@/components/ui";
+import { PrinterIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function PrintButton({ label = "Cetak / simpan PDF" }: { label?: string }) {
   return (
-    <button type="button" className={btnPrimary} onClick={() => window.print()}>
+    <Button type="button" onClick={() => window.print()}>
+      <PrinterIcon />
       {label}
-    </button>
+    </Button>
   );
 }

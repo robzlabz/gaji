@@ -6,8 +6,20 @@ import { employees, payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { deletePayrollDraftAction, updatePayPeriodStatusAction } from "../../actions";
 import { Flash } from "@/components/flash";
-import { Badge, Card, EmptyState, Stat, Table, Td, btnDanger, btnGhost, btnPrimary } from "@/components/ui";
-import { PAY_TYPE_LABEL, formatDateID, rupiah, toNumber } from "@/lib/utils";
+import { EmptyState } from "@/components/empty-state";
+import { StatCard } from "@/components/stat-card";
+import { StatusBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PAY_TYPE_LABEL, formatDateID, rupiah, toNumber } from "@/lib/format";
 import { periodLabel } from "@/lib/period";
 
 export default async function PayrollDetailPage({
@@ -66,23 +78,24 @@ export default async function PayrollDetailPage({
   return (
     <>
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <Link href="/admin/payroll" className="text-xs text-muted">
+        <div className="min-w-0">
+          <Link href="/admin/payroll" className="text-xs text-muted-foreground hover:underline">
             ← Payroll
           </Link>
-          <h1 className="text-xl font-semibold text-stone-900">
+          <h1 className="text-2xl font-semibold tracking-tight">
             {periodLabel({ start: period.periodStart, end: period.periodEnd })}
           </h1>
-          <p className="text-sm text-muted">
-            {slips.length} slip · tanggal bayar {period.payDate ? formatDateID(period.payDate) : "belum diset"}
+          <p className="text-sm text-muted-foreground">
+            {slips.length} slip · tanggal bayar{" "}
+            {period.payDate ? formatDateID(period.payDate) : "belum diset"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <a href={`/admin/payroll/${period.id}/export`} className={btnGhost}>
-            Unduh CSV
-          </a>
+          <Button asChild variant="outline">
+            <a href={`/admin/payroll/${period.id}/export`}>Unduh CSV</a>
+          </Button>
 
-          <Badge
+          <StatusBadge
             tone={
               period.status === "paid"
                 ? "good"
@@ -94,15 +107,13 @@ export default async function PayrollDetailPage({
             }
           >
             {period.status}
-          </Badge>
+          </StatusBadge>
 
           {period.status === "draft" && (
             <form action={updatePayPeriodStatusAction}>
               <input type="hidden" name="periodId" value={period.id} />
               <input type="hidden" name="status" value="approved" />
-              <button type="submit" className={btnPrimary}>
-                Finalkan
-              </button>
+              <Button type="submit">Finalkan</Button>
             </form>
           )}
 
@@ -110,18 +121,16 @@ export default async function PayrollDetailPage({
             <form action={updatePayPeriodStatusAction}>
               <input type="hidden" name="periodId" value={period.id} />
               <input type="hidden" name="status" value="paid" />
-              <button type="submit" className={btnPrimary}>
-                Tandai sudah dibayar
-              </button>
+              <Button type="submit">Tandai sudah dibayar</Button>
             </form>
           )}
 
           {period.status === "draft" && (
             <form action={deletePayrollDraftAction}>
               <input type="hidden" name="periodId" value={period.id} />
-              <button type="submit" className={btnDanger}>
+              <Button type="submit" variant="destructive">
                 Hapus draft
-              </button>
+              </Button>
             </form>
           )}
 
@@ -129,9 +138,9 @@ export default async function PayrollDetailPage({
             <form action={updatePayPeriodStatusAction}>
               <input type="hidden" name="periodId" value={period.id} />
               <input type="hidden" name="status" value="void" />
-              <button type="submit" className={btnGhost}>
+              <Button type="submit" variant="outline">
                 Batalkan
-              </button>
+              </Button>
             </form>
           )}
         </div>
@@ -140,81 +149,100 @@ export default async function PayrollDetailPage({
       <Flash ok={ok} err={err} />
 
       <div className="grid grid-cols-3 gap-3">
-        <Stat label="Bruto" value={rupiah(totalGross)} />
-        <Stat label="Potongan" value={rupiah(totalDeductions)} tone={totalDeductions > 0 ? "warn" : "default"} />
-        <Stat label="Total net" value={rupiah(totalNet)} tone="good" />
+        <StatCard label="Bruto" value={rupiah(totalGross)} />
+        <StatCard label="Potongan" value={rupiah(totalDeductions)} hint="kasbon & potongan lain" />
+        <StatCard label="Total net" value={rupiah(totalNet)} hint="yang dibayarkan" />
       </div>
 
       {slips.length === 0 ? (
-        <Card title="Slip gaji">
-          <EmptyState title="Tidak ada slip" />
+        <Card>
+          <CardHeader>
+            <CardTitle>Slip gaji</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <EmptyState title="Tidak ada slip" hint="Periode ini belum punya karyawan yang dihitung." />
+          </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {slips.map((slip) => {
             const slipItems = itemsBySlip.get(slip.id) ?? [];
             return (
               <Card key={slip.id}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <Link
-                      href={`/admin/karyawan/${slip.employeeId}`}
-                      className="font-medium text-stone-900"
-                    >
-                      {slip.employeeName}
-                    </Link>
-                    <p className="text-xs text-muted">
-                      {PAY_TYPE_LABEL[slip.payType]} · tarif {rupiah(toNumber(slip.payRate))}
-                    </p>
-                    <Link
-                      href={`/admin/payroll/${period.id}/slip/${slip.employeeId}`}
-                      className="mt-1 inline-block text-xs font-medium text-brand hover:underline"
-                    >
-                      Cetak slip
-                    </Link>
+                <CardHeader>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle>
+                        <Link href={`/admin/karyawan/${slip.employeeId}`} className="hover:underline">
+                          {slip.employeeName}
+                        </Link>
+                      </CardTitle>
+                      <CardDescription>
+                        {PAY_TYPE_LABEL[slip.payType]} · tarif {rupiah(toNumber(slip.payRate))}
+                      </CardDescription>
+                      <Button asChild variant="link" size="sm" className="mt-1 px-0">
+                        <Link href={`/admin/payroll/${period.id}/slip/${slip.employeeId}`}>
+                          Cetak slip
+                        </Link>
+                      </Button>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold tabular-nums">{rupiah(toNumber(slip.net))}</p>
+                      <p className="text-xs text-muted-foreground">
+                        bruto {rupiah(toNumber(slip.gross))} · potongan{" "}
+                        {rupiah(toNumber(slip.totalDeductions))}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold tabular-nums text-stone-900">{rupiah(toNumber(slip.net))}</p>
-                    <p className="text-xs text-muted">
-                      bruto {rupiah(toNumber(slip.gross))} · potongan {rupiah(toNumber(slip.totalDeductions))}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <Table head={["Komponen", "Qty", "Tarif", "Jumlah"]}>
-                    {slipItems.map((item) => (
-                      <tr key={item.id}>
-                        <Td className={item.kind === "kasbon" ? "text-red-700" : "text-stone-700"}>
-                          {item.label}
-                        </Td>
-                        <Td className="tabular-nums text-stone-600">
-                          {toNumber(item.qty)} {item.unit}
-                        </Td>
-                        <Td className="tabular-nums text-stone-600">{rupiah(toNumber(item.unitRate))}</Td>
-                        <Td
-                          className={
-                            item.kind === "kasbon"
-                              ? "tabular-nums font-medium text-red-700"
-                              : "tabular-nums font-medium"
-                          }
-                        >
-                          {item.kind === "kasbon" ? "−" : ""}
-                          {rupiah(toNumber(item.amount))}
-                        </Td>
-                      </tr>
-                    ))}
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Komponen</TableHead>
+                        <TableHead>Qty</TableHead>
+                        <TableHead>Tarif</TableHead>
+                        <TableHead className="text-right">Jumlah</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {slipItems.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell
+                            className={item.kind === "kasbon" ? "text-destructive" : undefined}
+                          >
+                            {item.label}
+                          </TableCell>
+                          <TableCell className="tabular-nums text-muted-foreground">
+                            {toNumber(item.qty)} {item.unit}
+                          </TableCell>
+                          <TableCell className="tabular-nums text-muted-foreground">
+                            {rupiah(toNumber(item.unitRate))}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              item.kind === "kasbon"
+                                ? "text-right font-medium tabular-nums text-destructive"
+                                : "text-right font-medium tabular-nums"
+                            }
+                          >
+                            {item.kind === "kasbon" ? "−" : ""}
+                            {rupiah(toNumber(item.amount))}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
                   </Table>
-                </div>
+                </CardContent>
               </Card>
             );
           })}
         </div>
       )}
 
-      <p className="text-xs text-muted">
-        Slip menyimpan snapshot tarif &amp; kuantitas saat payroll dihitung, jadi perubahan tarif berikutnya
-        tidak mengubah slip lama.
+      <p className="text-xs text-muted-foreground">
+        Slip menyimpan snapshot tarif &amp; kuantitas saat payroll dihitung, jadi perubahan tarif
+        berikutnya tidak mengubah slip lama.
       </p>
     </>
   );

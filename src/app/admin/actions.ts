@@ -23,7 +23,7 @@ import { AccountError, createCredentialUser, setPin } from "@/lib/accounts";
 import { audit } from "@/lib/audit";
 import { previewPayroll } from "@/lib/payroll-run";
 import { ORG_COOKIE, requireAdmin } from "@/lib/session";
-import { normalizePhone, parseMoneyInput, toNumber, localDateString } from "@/lib/utils";
+import { normalizePhone, parseMoneyInput, toNumber, localDateString } from "@/lib/format";
 
 function str(fd: FormData, key: string): string {
   const value = fd.get(key);

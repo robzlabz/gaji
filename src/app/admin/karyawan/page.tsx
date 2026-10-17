@@ -5,17 +5,21 @@ import { employees } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { createEmployeeAction } from "../actions";
 import { Flash } from "@/components/flash";
+import { EmptyState } from "@/components/empty-state";
+import { StatusBadge } from "@/components/status-badge";
+import { CheckField, FormField, SelectInput } from "@/components/form-field";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
-  Badge,
-  Card,
-  EmptyState,
-  Field,
   Table,
-  Td,
-  btnPrimary,
-  inputClass,
-} from "@/components/ui";
-import { PAY_TYPE_LABEL, formatDateID, localDateString, rupiah, toNumber } from "@/lib/utils";
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { PAY_TYPE_LABEL, formatDateID, localDateString, rupiah, toNumber } from "@/lib/format";
 
 export default async function EmployeesPage({
   searchParams,
@@ -35,91 +39,124 @@ export default async function EmployeesPage({
 
   return (
     <>
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-stone-900">Karyawan</h1>
-          <p className="text-sm text-muted">{rows.length} karyawan terdaftar</p>
-        </div>
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Karyawan</h1>
+        <p className="text-sm text-muted-foreground">{rows.length} karyawan terdaftar</p>
       </header>
 
       <Flash ok={ok} err={err} />
 
-      <Card title="Tambah karyawan" subtitle="Buat data karyawan sekaligus akun login (nomor HP + PIN).">
-        <form action={createEmployeeAction} className="grid gap-3 md:grid-cols-3">
-          <Field label="Nama lengkap">
-            <input name="fullName" className={inputClass} required placeholder="Budi Santoso" />
-          </Field>
-          <Field label="NIK / kode" hint="Opsional, unik per perusahaan">
-            <input name="code" className={inputClass} placeholder="EMP-001" />
-          </Field>
-          <Field label="Tanggal masuk">
-            <input type="date" name="joinedAt" className={inputClass} defaultValue={today} required />
-          </Field>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tambah karyawan</CardTitle>
+          <CardDescription>
+            Buat data karyawan sekaligus akun login (nomor HP + PIN 6 digit).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form action={createEmployeeAction} className="grid gap-3 md:grid-cols-3">
+            <FormField label="Nama lengkap">
+              <Input name="fullName" required placeholder="Budi Santoso" />
+            </FormField>
+            <FormField label="NIK / kode" hint="Opsional, unik per perusahaan">
+              <Input name="code" placeholder="EMP-001" />
+            </FormField>
+            <FormField label="Tanggal masuk">
+              <Input type="date" name="joinedAt" defaultValue={today} required />
+            </FormField>
 
-          <Field label="Tipe penggajian">
-            <select name="payType" className={inputClass} defaultValue="hourly">
-              <option value="hourly">Per jam</option>
-              <option value="daily">Per hari</option>
-              <option value="monthly">Per bulan</option>
-              <option value="per_task">Per tugas</option>
-            </select>
-          </Field>
-          <Field label="Tarif (Rp)" hint="per jam / hari / bulan / unit tugas">
-            <input name="payRate" className={inputClass} inputMode="numeric" placeholder="25000" required />
-          </Field>
-          <Field label="Nomor HP" hint="Dipakai untuk login">
-            <input name="phone" className={inputClass} inputMode="tel" placeholder="08123456789" />
-          </Field>
+            <FormField label="Tipe penggajian">
+              <SelectInput name="payType" defaultValue="hourly">
+                <option value="hourly">Per jam</option>
+                <option value="daily">Per hari</option>
+                <option value="monthly">Per bulan</option>
+                <option value="per_task">Per tugas</option>
+              </SelectInput>
+            </FormField>
+            <FormField label="Tarif (Rp)" hint="per jam / hari / bulan / unit tugas">
+              <Input name="payRate" inputMode="numeric" placeholder="25000" required />
+            </FormField>
+            <FormField label="Nomor HP" hint="Dipakai untuk login">
+              <Input name="phone" inputMode="tel" placeholder="08123456789" />
+            </FormField>
 
-          <Field label="PIN awal" hint="6 digit angka">
-            <input
-              name="pin"
-              className={inputClass}
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="123456"
-            />
-          </Field>
+            <FormField label="PIN awal" hint="6 digit angka">
+              <Input name="pin" inputMode="numeric" maxLength={6} placeholder="123456" />
+            </FormField>
 
-          <label className="flex items-end gap-2 pb-2 text-sm text-stone-700">
-            <input type="checkbox" name="createLogin" defaultChecked className="h-4 w-4" />
-            Buat akun login
-          </label>
+            <div className="flex items-end pb-1">
+              <CheckField name="createLogin" label="Buat akun login" defaultChecked />
+            </div>
 
-          <div className="flex items-end">
-            <button type="submit" className={`${btnPrimary} w-full`}>
-              Simpan karyawan
-            </button>
-          </div>
-        </form>
+            <div className="flex items-end">
+              <Button type="submit" className="w-full">
+                Simpan karyawan
+              </Button>
+            </div>
+          </form>
+        </CardContent>
       </Card>
 
-      <Card title="Daftar karyawan">
-        {rows.length === 0 ? (
-          <EmptyState title="Belum ada karyawan" hint="Tambahkan karyawan pertama lewat form di atas." />
-        ) : (
-          <Table head={["Nama", "Tipe gaji", "Tarif", "Masuk", "Akun", "Status"]}>
-            {rows.map((row) => (
-              <tr key={row.id} className="hover:bg-stone-50/60">
-                <Td>
-                  <Link href={`/admin/karyawan/${row.id}`} className="font-medium text-stone-900">
-                    {row.fullName}
-                  </Link>
-                  {row.code && <span className="ml-2 text-xs text-muted">{row.code}</span>}
-                </Td>
-                <Td className="text-stone-600">{PAY_TYPE_LABEL[row.payType] ?? row.payType}</Td>
-                <Td className="tabular-nums text-stone-700">{rupiah(toNumber(row.payRate))}</Td>
-                <Td className="tabular-nums text-stone-600">{formatDateID(row.joinedAt)}</Td>
-                <Td>
-                  {row.userId ? <Badge tone="good">aktif</Badge> : <Badge tone="default">tanpa akun</Badge>}
-                </Td>
-                <Td>
-                  {row.isActive ? <Badge tone="brand">aktif</Badge> : <Badge tone="bad">nonaktif</Badge>}
-                </Td>
-              </tr>
-            ))}
-          </Table>
-        )}
+      <Card>
+        <CardHeader>
+          <CardTitle>Daftar karyawan</CardTitle>
+          <CardDescription>Klik nama untuk mengubah data, tarif, dan kontrak.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {rows.length === 0 ? (
+            <EmptyState
+              title="Belum ada karyawan"
+              hint="Tambahkan karyawan pertama lewat form di atas."
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nama</TableHead>
+                  <TableHead>Tipe gaji</TableHead>
+                  <TableHead>Tarif</TableHead>
+                  <TableHead>Masuk</TableHead>
+                  <TableHead>Akun</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <Link
+                        href={`/admin/karyawan/${row.id}`}
+                        className="font-medium hover:underline"
+                      >
+                        {row.fullName}
+                      </Link>
+                      {row.code && (
+                        <span className="ml-2 text-xs text-muted-foreground">{row.code}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {PAY_TYPE_LABEL[row.payType] ?? row.payType}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{rupiah(toNumber(row.payRate))}</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">
+                      {formatDateID(row.joinedAt)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge tone={row.userId ? "good" : "default"}>
+                        {row.userId ? "aktif" : "tanpa akun"}
+                      </StatusBadge>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge tone={row.isActive ? "good" : "bad"}>
+                        {row.isActive ? "aktif" : "nonaktif"}
+                      </StatusBadge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
       </Card>
     </>
   );

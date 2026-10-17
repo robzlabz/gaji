@@ -1,9 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { CircleAlertIcon } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { btnPrimary, inputClass } from "@/components/ui";
-import { normalizePhone } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { normalizePhone } from "@/lib/format";
 
 export function LoginForm({ next }: { next?: string }) {
   const [phone, setPhone] = useState("");
@@ -45,11 +48,10 @@ export function LoginForm({ next }: { next?: string }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-stone-700">Nomor HP</span>
-        <input
-          className={inputClass}
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Nomor HP</span>
+        <Input
           inputMode="tel"
           autoComplete="tel"
           placeholder="08123456789"
@@ -59,10 +61,10 @@ export function LoginForm({ next }: { next?: string }) {
         />
       </label>
 
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-stone-700">PIN (6 digit)</span>
-        <input
-          className={`${inputClass} tracking-[0.4em]`}
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">PIN (6 digit)</span>
+        <Input
+          className="tracking-[0.4em]"
           inputMode="numeric"
           type="password"
           autoComplete="current-password"
@@ -75,14 +77,15 @@ export function LoginForm({ next }: { next?: string }) {
       </label>
 
       {error && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </p>
+        <Alert variant="destructive">
+          <CircleAlertIcon />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <button type="submit" className={`${btnPrimary} w-full`} disabled={loading}>
+      <Button type="submit" size="lg" className="w-full" disabled={loading}>
         {loading ? "Memproses…" : "Masuk"}
-      </button>
+      </Button>
     </form>
   );
 }
