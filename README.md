@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Gaji — Payroll & Absensi
 
-## Getting Started
+Aplikasi penggajian multi-tenant: karyawan, kontrak, absensi (clock in/out PWA), tugas, kasbon, dan slip gaji.
 
-First, run the development server:
+- Stack: Next.js 15 (App Router) + Postgres + Drizzle ORM + Better Auth + Tailwind v4
+- Login karyawan: nomor HP + PIN 6 digit
+- Dua dashboard: `/admin` (owner/admin) dan `/employee` (karyawan)
+
+## Jalankan
 
 ```bash
+# dari root repo
+docker compose up -d
+
+cd web
+npm install
+npm run db:push     # sinkron schema (pakai --force bila non-interaktif)
+npm run db:seed     # data demo 2 tenant
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Buka http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Akun demo
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Peran | HP | PIN | Catatan |
+|---|---|---|---|
+| Owner | 0811111111 | 111111 | akses Kopi Senja & Bakery Pagi |
+| Budi | 0822222222 | 222222 | per jam |
+| Sari | 0833333333 | 333333 | per hari |
+| Andi | 0844444444 | 444444 | per bulan |
+| Rina | 0855555555 | 555555 | per tugas |
+| Tono | 0866666666 | 666666 | tenant Bakery Pagi |
 
-## Learn More
+## Skrip
 
-To learn more about Next.js, take a look at the following resources:
+| Skrip | Fungsi |
+|---|---|
+| `npm run dev` | dev server |
+| `npm run build` | build produksi + lint |
+| `npm run db:push` | dorong schema Drizzle ke Postgres |
+| `npm run db:studio` | Drizzle Studio |
+| `npm run db:seed` | reset tenant demo + isi data contoh |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Struktur singkat
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/
+  app/
+    admin/          dashboard owner/admin (ringkasan, karyawan, kontrak, absensi, tugas, kasbon, payroll, pengaturan)
+    employee/       dashboard karyawan (clock in/out, riwayat, tugas, kasbon, slip)
+    api/auth/       handler Better Auth
+    api/switch-org/ ganti tenant aktif
+    login/          login HP + PIN
+  db/               schema Drizzle, koneksi, seed
+  lib/              auth, session/tenant, payroll (kalkulasi), period, utils, audit
+  components/       UI primitif
+```
 
-## Deploy on Vercel
+## Catatan desain
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `payslip_items` menyimpan snapshot (qty, tarif, jumlah) — perubahan tarif tidak mengubah slip lama.
+- Satu sesi absensi terbuka per karyawan (partial unique index `time_entries_one_open`).
+- Jam clock-in selalu dari server, bukan jam device.
+- Semua query difilter `org_id`, bukan hanya `employee_id`.
+- Kontrak yang sudah berjalan menyetir `employees.pay_rate` + dicatat di `pay_rate_history`.
