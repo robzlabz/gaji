@@ -75,8 +75,8 @@ export default async function TasksPage({
           <CardDescription>Tentukan jumlah, satuan, dan tarif per satuan.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={createTaskAction} className="grid gap-3 sm:grid-cols-3">
-            <FormField label="Judul tugas" className="sm:col-span-2">
+          <form action={createTaskAction} className="flex flex-col gap-3">
+            <FormField label="Judul tugas">
               <Input name="title" placeholder="Potong 20 pcs bahan kaos" required />
             </FormField>
             <FormField label="Karyawan" hint="Kosongkan bila belum ditentukan">
@@ -101,13 +101,11 @@ export default async function TasksPage({
             <FormField label="Tanggal kerja">
               <Input type="date" name="workDate" defaultValue={today} />
             </FormField>
-            <FormField label="Deskripsi" className="sm:col-span-2">
+            <FormField label="Deskripsi">
               <Input name="description" placeholder="opsional" />
             </FormField>
-            <div className="flex items-end">
-              <Button type="submit" className="w-full">
-                Simpan tugas
-              </Button>
+            <div>
+              <Button type="submit">Simpan tugas</Button>
             </div>
           </form>
         </CardContent>

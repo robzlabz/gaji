@@ -150,7 +150,7 @@ export default async function AdvancesPage({
           <CardDescription>Pengajuan dari admin langsung berstatus pending.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={createAdvanceAction} className="grid gap-3 sm:grid-cols-3">
+          <form action={createAdvanceAction} className="flex flex-col gap-3">
             <input type="hidden" name="backTo" value="/admin/kasbon" />
             <FormField label="Karyawan">
               <SelectInput name="employeeId" required defaultValue="">
@@ -171,13 +171,11 @@ export default async function AdvancesPage({
             <FormField label="Tanggal pengajuan">
               <Input type="date" name="requestedAt" defaultValue={today} />
             </FormField>
-            <FormField label="Catatan" className="sm:col-span-2">
+            <FormField label="Catatan">
               <Input name="note" placeholder="opsional" />
             </FormField>
-            <div className="flex items-end">
-              <Button type="submit" className="w-full">
-                Simpan
-              </Button>
+            <div>
+              <Button type="submit">Simpan</Button>
             </div>
           </form>
         </CardContent>

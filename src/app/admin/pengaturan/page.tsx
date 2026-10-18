@@ -31,7 +31,7 @@ export default async function SettingsPage({
           <CardDescription>Berlaku untuk seluruh karyawan perusahaan ini.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={updateOrgSettingsAction} className="grid gap-3 sm:grid-cols-2">
+          <form action={updateOrgSettingsAction} className="flex flex-col gap-4">
             <FormField
               label="Tanggal mulai periode gaji"
               hint="Contoh: 26 → periode 26 Jan s/d 25 Feb. Default 1 = bulan kalender."
@@ -87,7 +87,7 @@ export default async function SettingsPage({
                 ))}
               </SelectInput>
             </FormField>
-            <div className="sm:col-span-2 border-t pt-3">
+            <div className="border-t pt-3">
               <p className="text-sm font-medium">Lokasi absensi (opsional)</p>
               <p className="text-xs text-muted-foreground">
                 Isi koordinat kantor agar clock in di luar radius ditandai “luar area”. Kosongkan
@@ -121,7 +121,7 @@ export default async function SettingsPage({
                 defaultValue={org.geofenceRadiusM ?? ""}
               />
             </FormField>
-            <div className="sm:col-span-2">
+            <div>
               <Button type="submit">Simpan pengaturan</Button>
             </div>
           </form>

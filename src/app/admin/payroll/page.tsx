@@ -89,7 +89,7 @@ export default async function PayrollPage({
           <CardDescription>Hanya absensi &amp; tugas berstatus approved yang dihitung.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
-          <form action={createPayrollRunAction} className="grid gap-3 sm:grid-cols-3">
+          <form action={createPayrollRunAction} className="flex flex-col gap-3">
             <FormField label="Periode">
               <SelectInput name="period" defaultValue={`${options[0].start}|${options[0].end}`}>
                 {options.map((period) => (
@@ -102,10 +102,8 @@ export default async function PayrollPage({
             <FormField label="Tanggal bayar" hint="Opsional">
               <Input type="date" name="payDate" />
             </FormField>
-            <div className="flex items-end">
-              <Button type="submit" className="w-full">
-                Hitung &amp; buat draft
-              </Button>
+            <div>
+              <Button type="submit">Hitung &amp; buat draft</Button>
             </div>
           </form>
           <p className="text-xs text-muted-foreground">

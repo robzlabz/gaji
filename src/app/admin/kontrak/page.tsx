@@ -163,7 +163,7 @@ export default async function ContractsPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form action={createContractAction} className="grid gap-3 sm:grid-cols-3">
+            <form action={createContractAction} className="flex flex-col gap-3">
               <input type="hidden" name="employeeId" value={renewing.employeeId} />
               <input type="hidden" name="renewedFromId" value={renewing.id} />
               <input type="hidden" name="backTo" value="/admin/kontrak" />
@@ -203,10 +203,8 @@ export default async function ContractsPage({
                   defaultValue={Math.round(toNumber(renewing.payRate))}
                 />
               </FormField>
-              <div className="flex items-end">
-                <Button type="submit" className="w-full">
-                  Simpan perpanjangan
-                </Button>
+              <div>
+                <Button type="submit">Simpan perpanjangan</Button>
               </div>
             </form>
           </CardContent>
@@ -327,7 +325,7 @@ export default async function ContractsPage({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={createContractAction} className="grid gap-3 sm:grid-cols-3">
+          <form action={createContractAction} className="flex flex-col gap-3">
             <input type="hidden" name="backTo" value="/admin/kontrak" />
             <FormField label="Karyawan">
               <SelectInput name="employeeId" required defaultValue="">
@@ -360,7 +358,7 @@ export default async function ContractsPage({
             <FormField label="Tarif">
               <Input name="payRate" inputMode="numeric" placeholder="25000" />
             </FormField>
-            <div className="sm:col-span-3">
+            <div>
               <Button type="submit">Simpan kontrak</Button>
             </div>
           </form>

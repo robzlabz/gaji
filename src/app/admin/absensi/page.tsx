@@ -176,34 +176,33 @@ export default async function AttendancePage({
                     )}
 
                     {row.status === "pending" && (
-                      <form
-                        action={decideTimeEntryAction}
-                        className="mt-3 flex flex-wrap items-end gap-2"
-                      >
+                      <form action={decideTimeEntryAction} className="mt-3 flex flex-col gap-2">
                         <input type="hidden" name="entryId" value={row.id} />
-                        <FormField label="Istirahat (menit)" className="w-28">
+                        <FormField label="Istirahat (menit)">
                           <Input
                             name="breakMinutes"
                             defaultValue={row.breakMinutes}
                             inputMode="numeric"
                           />
                         </FormField>
-                        <FormField label="Lembur (menit)" className="w-28">
+                        <FormField label="Lembur (menit)">
                           <Input
                             name="overtimeMinutes"
                             defaultValue={row.overtimeMinutes}
                             inputMode="numeric"
                           />
                         </FormField>
-                        <FormField label="Catatan lembur / alasan" className="min-w-40 flex-1">
+                        <FormField label="Catatan lembur / alasan">
                           <Input name="reason" placeholder="opsional" />
                         </FormField>
-                        <Button type="submit" name="decision" value="approve">
-                          Setujui
-                        </Button>
-                        <Button type="submit" name="decision" value="reject" variant="destructive">
-                          Tolak
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button type="submit" name="decision" value="approve">
+                            Setujui
+                          </Button>
+                          <Button type="submit" name="decision" value="reject" variant="destructive">
+                            Tolak
+                          </Button>
+                        </div>
                       </form>
                     )}
 

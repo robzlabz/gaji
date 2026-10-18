@@ -54,12 +54,19 @@ function optionalNumber(fd: FormData, key: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function flash(path: string, params: Record<string, string>): never {
+  // Path boleh sudah membawa query (mis. `?tab=kasbon`), jadi flash ditambahkan dengan aman.
+  const url = new URL(path, "http://flash.local");
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  redirect(`${url.pathname}${url.search}${url.hash}`);
+}
+
 function fail(path: string, message: string): never {
-  redirect(`${path}?err=${encodeURIComponent(message)}`);
+  flash(path, { err: message });
 }
 
 function ok(path: string, message: string): never {
-  redirect(`${path}?ok=${encodeURIComponent(message)}`);
+  flash(path, { ok: message });
 }
 
 /* ----------------------------- organisasi ----------------------------- */
@@ -118,6 +125,7 @@ export async function updateOrgSettingsAction(formData: FormData) {
 
 export async function createEmployeeAction(formData: FormData) {
   const { org, user } = await requireAdmin();
+  const backTo = "/admin/karyawan/baru";
 
   const fullName = str(formData, "fullName");
   const phone = str(formData, "phone");
@@ -129,22 +137,22 @@ export async function createEmployeeAction(formData: FormData) {
   const joinedAt = str(formData, "joinedAt") || new Date().toISOString().slice(0, 10);
   const createLogin = str(formData, "createLogin") === "on";
 
-  if (!fullName) fail("/admin/karyawan", "Nama karyawan wajib diisi.");
+  if (!fullName) fail(backTo, "Nama karyawan wajib diisi.");
   if (!["hourly", "daily", "monthly", "per_task"].includes(payType))
-    fail("/admin/karyawan", "Tipe penggajian tidak valid.");
-  if (payRate <= 0) fail("/admin/karyawan", "Tarif harus lebih dari 0.");
+    fail(backTo, "Tipe penggajian tidak valid.");
+  if (payRate <= 0) fail(backTo, "Tarif harus lebih dari 0.");
 
   let userId: string | null = null;
 
   try {
     if (createLogin) {
       if (!isValidPhone(phone, phoneDial))
-        fail("/admin/karyawan", "Nomor HP tidak valid untuk login.");
+        fail(backTo, "Nomor HP tidak valid untuk login.");
       const created = await createCredentialUser({ name: fullName, phone, pin, dial: phoneDial });
       userId = created.userId;
     }
   } catch (error) {
-    if (error instanceof AccountError) fail("/admin/karyawan", error.message);
+    if (error instanceof AccountError) fail(backTo, error.message);
     throw error;
   }
 
@@ -186,12 +194,14 @@ export async function createEmployeeAction(formData: FormData) {
   });
 
   revalidatePath("/admin/karyawan");
-  ok("/admin/karyawan", `${fullName} ditambahkan.`);
+  // Langsung ke halaman detail karyawan baru supaya bisa lanjut isi kontrak/akun.
+  ok(`/admin/karyawan/${employee.id}`, `${fullName} ditambahkan.`);
 }
 
 export async function updateEmployeeAction(formData: FormData) {
   const { org, user } = await requireAdmin();
   const employeeId = str(formData, "employeeId");
+  const backTo = str(formData, "backTo") || `/admin/karyawan/${employeeId}`;
 
   const [current] = await db
     .select()
@@ -236,13 +246,14 @@ export async function updateEmployeeAction(formData: FormData) {
   });
 
   revalidatePath(`/admin/karyawan/${employeeId}`);
-  ok(`/admin/karyawan/${employeeId}`, "Data karyawan diperbarui.");
+  ok(backTo, "Data karyawan diperbarui.");
 }
 
 export async function resetPinAction(formData: FormData) {
   const { org, user } = await requireAdmin();
   const employeeId = str(formData, "employeeId");
   const pin = str(formData, "pin");
+  const backTo = str(formData, "backTo") || `/admin/karyawan/${employeeId}`;
 
   const [employee] = await db
     .select()
@@ -250,12 +261,12 @@ export async function resetPinAction(formData: FormData) {
     .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)))
     .limit(1);
 
-  if (!employee?.userId) fail(`/admin/karyawan/${employeeId}`, "Karyawan ini tidak punya akun login.");
+  if (!employee?.userId) fail(backTo, "Karyawan ini tidak punya akun login.");
 
   try {
     await setPin(employee.userId, pin);
   } catch (error) {
-    if (error instanceof AccountError) fail(`/admin/karyawan/${employeeId}`, error.message);
+    if (error instanceof AccountError) fail(backTo, error.message);
     throw error;
   }
 
@@ -267,7 +278,7 @@ export async function resetPinAction(formData: FormData) {
     action: "reset_pin",
   });
 
-  ok(`/admin/karyawan/${employeeId}`, "PIN berhasil diganti.");
+  ok(backTo, "PIN berhasil diganti.");
 }
 
 /* ------------------------------- kontrak ------------------------------ */
