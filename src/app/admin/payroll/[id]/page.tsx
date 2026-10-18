@@ -4,7 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { deletePayrollDraftAction, updatePayPeriodStatusAction } from "../../actions";
+import { deletePayrollDraftAction, recalculatePayrollDraftAction, updatePayPeriodStatusAction } from "../../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
@@ -109,6 +109,20 @@ export default async function PayrollDetailPage({
           >
             {statusLabel(period.status)}
           </StatusBadge>
+
+          {period.status === "draft" && (
+            <>
+              <Button asChild variant="outline">
+                <Link href="/admin/kasbon">Atur kasbon</Link>
+              </Button>
+              <form action={recalculatePayrollDraftAction}>
+                <input type="hidden" name="periodId" value={period.id} />
+                <Button type="submit" variant="outline">
+                  Hitung ulang
+                </Button>
+              </form>
+            </>
+          )}
 
           {period.status === "draft" && (
             <form action={updatePayPeriodStatusAction}>
@@ -244,6 +258,9 @@ export default async function PayrollDetailPage({
       <p className="text-xs text-muted-foreground">
         Slip menyimpan snapshot tarif &amp; kuantitas saat payroll dihitung, jadi perubahan tarif
         berikutnya tidak mengubah slip lama.
+        {period.status === "draft"
+          ? " Draft masih bisa dihitung ulang setelah rencana potong kasbon diubah."
+          : ""}
       </p>
     </>
   );

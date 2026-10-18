@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { cashAdvances, timeEntries, workTasks } from "@/db/schema";
 import { audit } from "@/lib/audit";
+import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
 import { requireEmployee } from "@/lib/session";
 import { localDateString, parseMoneyInput } from "@/lib/format";
 
@@ -15,6 +16,11 @@ function fail(path: string, message: string): never {
 
 function ok(path: string, message: string): never {
   redirect(`${path}?ok=${encodeURIComponent(message)}`);
+}
+
+function str(fd: FormData, key: string): string {
+  const value = fd.get(key);
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function numberField(fd: FormData, key: string): number | null {
@@ -212,4 +218,60 @@ export async function requestAdvanceAction(formData: FormData) {
 
   revalidatePath("/employee/kasbon");
   ok("/employee/kasbon", "Pengajuan kasbon dikirim ke admin.");
+}
+
+/**
+ * Karyawan memilih kasbon mana yang dipotong dari gaji periode ini,
+ * atau menundanya ke periode berikutnya.
+ */
+export async function setMyAdvancePlanAction(formData: FormData) {
+  const { org, employee, user } = await requireEmployee();
+  const advanceId = str(formData, "advanceId");
+  const decision = str(formData, "decision") || "deduct";
+  const amount = parseMoneyInput(formData.get("amount"));
+
+  const [advance] = await db
+    .select({ id: cashAdvances.id, employeeId: cashAdvances.employeeId })
+    .from(cashAdvances)
+    .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)))
+    .limit(1);
+
+  if (!advance || advance.employeeId !== employee.id) {
+    fail("/employee/kasbon", "Kasbon tidak ditemukan.");
+  }
+
+  const target = await resolvePlanPeriod(org, str(formData, "periodStart"));
+  if (!target.ok) fail("/employee/kasbon", target.message);
+
+  try {
+    await saveAdvancePlan({
+      orgId: org.id,
+      advanceId,
+      period: target.period,
+      decision,
+      amount,
+      userId: user.id,
+    });
+  } catch (error) {
+    if (error instanceof PlanError) fail("/employee/kasbon", error.message);
+    throw error;
+  }
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "cash_advance_plans",
+    entityId: advanceId,
+    action: `plan_${decision}`,
+    diff: { periodStart: target.period.start, amount },
+  });
+
+  revalidatePath("/employee/kasbon");
+  revalidatePath("/admin/kasbon");
+  ok(
+    "/employee/kasbon",
+    decision === "defer"
+      ? "Kasbon ditunda ke periode gaji berikutnya."
+      : "Kasbon akan dipotong pada periode ini.",
+  );
 }

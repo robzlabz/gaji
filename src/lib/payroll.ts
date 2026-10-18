@@ -45,6 +45,12 @@ export type AdvanceInput = {
   id: string;
   balance: string | number;
   installmentAmount: string | number | null;
+  /** Nominal hasil keputusan karyawan/admin untuk periode ini (menang atas cicilan). */
+  amountOverride?: number | null;
+  /** Kasbon ditunda ke periode berikutnya. */
+  deferred?: boolean;
+  /** Label baris slip, mis. "Kasbon 12 Sep · biaya sekolah". */
+  label?: string;
 };
 
 export type ComputeInput = {
@@ -192,15 +198,26 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     gross += line.amount;
   }
 
+  let deferredCount = 0;
+
   for (const advance of input.advances) {
     const balance = toNumber(advance.balance);
     if (balance <= 0) continue;
+
+    if (advance.deferred) {
+      deferredCount += 1;
+      continue;
+    }
+
+    const override = toNumber(advance.amountOverride ?? 0);
     const installment = toNumber(advance.installmentAmount);
-    const amount = Math.round(installment > 0 ? Math.min(installment, balance) : balance);
+    const requested = override > 0 ? override : installment > 0 ? installment : balance;
+    const amount = Math.round(Math.min(requested, balance));
     if (amount <= 0) continue;
+
     lines.push({
       kind: "kasbon",
-      label: "Potongan kasbon",
+      label: advance.label ?? "Potongan kasbon",
       qty: 1,
       unit: "potongan",
       unitRate: amount,
@@ -209,6 +226,12 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
       sourceId: advance.id,
     });
     deductions += amount;
+  }
+
+  if (deferredCount > 0) {
+    warnings.push(
+      `${deferredCount} kasbon ditunda ke periode berikutnya (tidak dipotong kali ini).`,
+    );
   }
 
   const net = gross - deductions;

@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { cashAdvances } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
-import { requestAdvanceAction } from "../actions";
+import { setMyAdvancePlanAction, requestAdvanceAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
@@ -12,14 +12,19 @@ import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { KasbonPlanList } from "@/components/kasbon-plan-list";
 import { formatDateID, rupiah, toNumber } from "@/lib/format";
+import { periodLabel } from "@/lib/period";
+import { summarizePlans } from "@/lib/kasbon";
+import { planningPeriod } from "@/lib/kasbon-server";
+import { advancePlansForPeriod } from "@/lib/payroll-run";
 
 export default async function EmployeeAdvances({
   searchParams,
 }: {
   searchParams: Promise<{ ok?: string; err?: string }>;
 }) {
-  const { employee } = await requireEmployee();
+  const { org, employee } = await requireEmployee();
   const { ok, err } = await searchParams;
 
   const rows = await db
@@ -32,18 +37,61 @@ export default async function EmployeeAdvances({
     .filter((row) => row.status === "approved")
     .reduce((sum, row) => sum + toNumber(row.balance), 0);
 
+  // Periode gaji yang masih bisa diatur — di sinilah kasbon dipotong atau ditunda.
+  const { period, nextPeriod } = await planningPeriod(org);
+  const planItems = await advancePlansForPeriod(org.id, period, { employeeId: employee.id });
+  const planSummary = summarizePlans(
+    planItems.map((item) => ({ advance: item.advance, plan: item.plan })),
+  );
+
   return (
     <>
       <header>
         <h1 className="text-lg font-semibold tracking-tight">Kasbon</h1>
         <p className="text-xs text-muted-foreground">
-          Sisa kasbon dipotong otomatis dari slip gaji berikutnya.
+          Pilih kasbon mana yang dipotong periode ini, sisanya bisa ditunda ke periode depan.
         </p>
       </header>
 
       <Flash ok={ok} err={err} />
 
       <StatCard label="Sisa kasbon" value={rupiah(outstanding)} hint="belum dipotong ke gaji" />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Rencana potong gaji</CardTitle>
+          <CardDescription>
+            Periode {periodLabel(period)} · potong {rupiah(planSummary.deductTotal)}
+            {planSummary.deferredCount > 0
+              ? ` · ${planSummary.deferredCount} kasbon ditunda (${rupiah(planSummary.deferredTotal)})`
+              : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <KasbonPlanList
+            items={planItems.map((item) => ({
+              advance: {
+                id: item.advance.id,
+                principal: item.advance.principal,
+                balance: item.advance.balance,
+                installmentAmount: item.advance.installmentAmount,
+                requestedAt: item.advance.requestedAt,
+                note: item.advance.note,
+              },
+              resolution: item.resolution,
+              planDecision:
+                item.plan?.decision === "deduct" || item.plan?.decision === "defer"
+                  ? item.plan.decision
+                  : null,
+              planAmount: item.plan?.amount ? Math.round(toNumber(item.plan.amount)) : null,
+            }))}
+            period={period}
+            nextPeriod={nextPeriod}
+            action={setMyAdvancePlanAction}
+            emptyHint="Belum ada kasbon aktif. Kalau ada kasbon yang disetujui admin, aturannya muncul di sini."
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

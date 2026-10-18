@@ -20,10 +20,18 @@ import {
   workTasks,
 } from "@/db/schema";
 import { AccountError, createCredentialUser, setPin } from "@/lib/accounts";
+import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
 import { audit } from "@/lib/audit";
-import { previewPayroll } from "@/lib/payroll-run";
+import { previewPayroll, type PayrollRow } from "@/lib/payroll-run";
 import { ORG_COOKIE, requireAdmin } from "@/lib/session";
-import { normalizePhone, parseMoneyInput, toNumber, localDateString, formatDateID } from "@/lib/format";
+import {
+  isValidPhone,
+  parseMoneyInput,
+  toNumber,
+  localDateString,
+  formatDateID,
+} from "@/lib/format";
+import { findCountry } from "@/lib/countries";
 
 /** Zona waktu yang boleh dipilih; menentukan batas tanggal absensi & periode gaji. */
 const TIMEZONE_OPTIONS = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"];
@@ -113,6 +121,7 @@ export async function createEmployeeAction(formData: FormData) {
 
   const fullName = str(formData, "fullName");
   const phone = str(formData, "phone");
+  const phoneDial = findCountry(str(formData, "phoneDial") || "ID").dial;
   const pin = str(formData, "pin");
   const code = optionalStr(formData, "code");
   const payType = str(formData, "payType");
@@ -129,9 +138,9 @@ export async function createEmployeeAction(formData: FormData) {
 
   try {
     if (createLogin) {
-      if (!/^62\d{8,15}$/.test(normalizePhone(phone)))
+      if (!isValidPhone(phone, phoneDial))
         fail("/admin/karyawan", "Nomor HP tidak valid untuk login.");
-      const created = await createCredentialUser({ name: fullName, phone, pin });
+      const created = await createCredentialUser({ name: fullName, phone, pin, dial: phoneDial });
       userId = created.userId;
     }
   } catch (error) {
@@ -578,6 +587,157 @@ export async function decideAdvanceAction(formData: FormData) {
 
 /* -------------------------------- payroll ----------------------------- */
 
+/**
+ * Simpan keputusan potong/tunda kasbon untuk satu periode gaji.
+ * `decision`: "deduct" (potong sekarang, `amount` opsional), "defer" (tunda ke periode
+ * berikutnya), atau "auto" (hapus keputusan, kembali ke cicilan/penuh otomatis).
+ */
+export async function setAdvancePlanAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const advanceId = str(formData, "advanceId");
+  const decision = str(formData, "decision") || "deduct";
+  const amount = parseMoneyInput(formData.get("amount"));
+  const backTo = str(formData, "backTo") || "/admin/kasbon";
+
+  const [advance] = await db
+    .select()
+    .from(cashAdvances)
+    .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)))
+    .limit(1);
+
+  if (!advance) fail(backTo, "Kasbon tidak ditemukan.");
+  if (advance.status !== "approved") fail(backTo, "Hanya kasbon approved yang bisa diatur.");
+
+  const target = await resolvePlanPeriod(org, str(formData, "periodStart"));
+  if (!target.ok) fail(backTo, target.message);
+
+  try {
+    await saveAdvancePlan({
+      orgId: org.id,
+      advanceId,
+      period: target.period,
+      decision,
+      amount,
+      note: optionalStr(formData, "note"),
+      userId: user.id,
+    });
+  } catch (error) {
+    if (error instanceof PlanError) fail(backTo, error.message);
+    throw error;
+  }
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "cash_advance_plans",
+    entityId: advanceId,
+    action: `plan_${decision}`,
+    diff: { periodStart: target.period.start, amount },
+  });
+
+  revalidatePath("/admin/kasbon");
+  revalidatePath(`/admin/karyawan/${advance.employeeId}`);
+  ok(backTo, "Rencana potong kasbon disimpan. Jalankan \"Hitung ulang\" pada draft payroll agar slip ikut berubah.");
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Tulis slip + item + ledger kasbon untuk satu periode dari hasil preview. */
+async function writePayrollSlips(
+  tx: Tx,
+  input: {
+    orgId: string;
+    periodId: string;
+    periodEnd: string;
+    userId: string;
+    rows: PayrollRow[];
+  },
+) {
+  for (const row of input.rows) {
+    const [slip] = await tx
+      .insert(payslips)
+      .values({
+        orgId: input.orgId,
+        payPeriodId: input.periodId,
+        employeeId: row.employee.id,
+        payType: row.employee.payType,
+        payRate: row.employee.payRate,
+        gross: row.computation.gross.toString(),
+        totalDeductions: row.computation.deductions.toString(),
+        net: row.computation.net.toString(),
+        status: "draft",
+      })
+      .returning();
+
+    if (row.computation.lines.length > 0) {
+      await tx.insert(payslipItems).values(
+        row.computation.lines.map((line) => ({
+          payslipId: slip.id,
+          kind: line.kind,
+          label: line.label,
+          qty: line.qty.toString(),
+          unit: line.unit,
+          unitRate: line.unitRate.toString(),
+          amount: line.amount.toString(),
+          sourceTable: line.sourceTable ?? null,
+          sourceId: line.sourceId ?? null,
+          meta: line.meta ?? null,
+        })),
+      );
+    }
+
+    // Catat pemotongan kasbon ke ledger + kurangi saldo
+    for (const line of row.computation.lines.filter((l) => l.kind === "kasbon")) {
+      if (!line.sourceId) continue;
+      await tx.insert(cashAdvanceTxns).values({
+        cashAdvanceId: line.sourceId,
+        kind: "repay",
+        amount: line.amount.toString(),
+        payslipId: slip.id,
+        occurredAt: input.periodEnd,
+        note: `Potongan slip gaji · ${line.label}`,
+        createdBy: input.userId,
+      });
+
+      await tx
+        .update(cashAdvances)
+        .set({
+          balance: sql`greatest(${cashAdvances.balance} - ${line.amount}, 0)`,
+          status: sql`case when ${cashAdvances.balance} - ${line.amount} <= 0 then 'settled' else ${cashAdvances.status} end`,
+        })
+        .where(eq(cashAdvances.id, line.sourceId));
+    }
+  }
+}
+
+/** Kembalikan saldo kasbon yang sempat dipotong oleh slip periode ini. */
+async function revertPayrollSettlements(tx: Tx, periodId: string) {
+  const slips = await tx
+    .select({ id: payslips.id })
+    .from(payslips)
+    .where(eq(payslips.payPeriodId, periodId));
+
+  const slipIds = slips.map((slip) => slip.id);
+  if (slipIds.length === 0) return;
+
+  const repayments = await tx
+    .select()
+    .from(cashAdvanceTxns)
+    .where(eq(cashAdvanceTxns.kind, "repay"));
+
+  for (const repayment of repayments) {
+    if (!repayment.payslipId || !slipIds.includes(repayment.payslipId)) continue;
+    await tx
+      .update(cashAdvances)
+      .set({
+        balance: sql`${cashAdvances.balance} + ${repayment.amount}`,
+        status: "approved",
+      })
+      .where(eq(cashAdvances.id, repayment.cashAdvanceId));
+    await tx.delete(cashAdvanceTxns).where(eq(cashAdvanceTxns.id, repayment.id));
+  }
+}
+
 export async function createPayrollRunAction(formData: FormData) {
   const { org, user } = await requireAdmin();
   const rawPeriod = str(formData, "period");
@@ -622,61 +782,13 @@ export async function createPayrollRunAction(formData: FormData) {
       })
       .returning();
 
-    for (const row of payable) {
-      const [slip] = await tx
-        .insert(payslips)
-        .values({
-          orgId: org.id,
-          payPeriodId: period.id,
-          employeeId: row.employee.id,
-          payType: row.employee.payType,
-          payRate: row.employee.payRate,
-          gross: row.computation.gross.toString(),
-          totalDeductions: row.computation.deductions.toString(),
-          net: row.computation.net.toString(),
-          status: "draft",
-        })
-        .returning();
-
-      if (row.computation.lines.length > 0) {
-        await tx.insert(payslipItems).values(
-          row.computation.lines.map((line) => ({
-            payslipId: slip.id,
-            kind: line.kind,
-            label: line.label,
-            qty: line.qty.toString(),
-            unit: line.unit,
-            unitRate: line.unitRate.toString(),
-            amount: line.amount.toString(),
-            sourceTable: line.sourceTable ?? null,
-            sourceId: line.sourceId ?? null,
-            meta: line.meta ?? null,
-          })),
-        );
-      }
-
-      // Catat pemotongan kasbon ke ledger + kurangi saldo
-      for (const line of row.computation.lines.filter((l) => l.kind === "kasbon")) {
-        if (!line.sourceId) continue;
-        await tx.insert(cashAdvanceTxns).values({
-          cashAdvanceId: line.sourceId,
-          kind: "repay",
-          amount: line.amount.toString(),
-          payslipId: slip.id,
-          occurredAt: periodEnd,
-          note: "Potongan otomatis slip gaji",
-          createdBy: user.id,
-        });
-
-        await tx
-          .update(cashAdvances)
-          .set({
-            balance: sql`greatest(${cashAdvances.balance} - ${line.amount}, 0)`,
-            status: sql`case when ${cashAdvances.balance} - ${line.amount} <= 0 then 'settled' else ${cashAdvances.status} end`,
-          })
-          .where(eq(cashAdvances.id, line.sourceId));
-      }
-    }
+    await writePayrollSlips(tx, {
+      orgId: org.id,
+      periodId: period.id,
+      periodEnd,
+      userId: user.id,
+      rows: payable,
+    });
 
     return period.id;
   });
@@ -692,6 +804,58 @@ export async function createPayrollRunAction(formData: FormData) {
 
   revalidatePath("/admin/payroll");
   redirect(`/admin/payroll/${periodId}`);
+}
+
+/**
+ * Hitung ulang draft payroll: dipakai setelah karyawan/admin mengubah rencana potong kasbon.
+ * Saldo kasbon yang sempat terpotong dikembalikan dulu, lalu slip & item dibuat ulang
+ * dari data approved + rencana terbaru.
+ */
+export async function recalculatePayrollDraftAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const periodId = str(formData, "periodId");
+
+  const [period] = await db
+    .select()
+    .from(payPeriods)
+    .where(and(eq(payPeriods.id, periodId), eq(payPeriods.orgId, org.id)))
+    .limit(1);
+
+  if (!period) fail("/admin/payroll", "Periode tidak ditemukan.");
+  if (period.status !== "draft")
+    fail(`/admin/payroll/${periodId}`, "Hanya draft yang bisa dihitung ulang.");
+
+  const preview = await previewPayroll(
+    org.id,
+    { start: period.periodStart, end: period.periodEnd },
+    { overtimeMultiplier: toNumber(org.overtimeMultiplier) },
+  );
+  const payable = preview.rows.filter((row) => row.computation.lines.length > 0);
+
+  await db.transaction(async (tx) => {
+    await revertPayrollSettlements(tx, periodId);
+    await tx.delete(payslips).where(eq(payslips.payPeriodId, periodId));
+
+    await writePayrollSlips(tx, {
+      orgId: org.id,
+      periodId,
+      periodEnd: period.periodEnd,
+      userId: user.id,
+      rows: payable,
+    });
+  });
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "pay_periods",
+    entityId: periodId,
+    action: "recalculate",
+    diff: { employees: payable.length },
+  });
+
+  revalidatePath(`/admin/payroll/${periodId}`);
+  ok(`/admin/payroll/${periodId}`, "Draft payroll dihitung ulang.");
 }
 
 export async function updatePayPeriodStatusAction(formData: FormData) {
@@ -769,33 +933,7 @@ export async function deletePayrollDraftAction(formData: FormData) {
   if (period.status !== "draft") fail(`/admin/payroll/${periodId}`, "Hanya draft yang bisa dihapus.");
 
   await db.transaction(async (tx) => {
-    const slips = await tx
-      .select({ id: payslips.id })
-      .from(payslips)
-      .where(eq(payslips.payPeriodId, periodId));
-
-    const slipIds = slips.map((slip) => slip.id);
-
-    if (slipIds.length > 0) {
-      // Kembalikan saldo kasbon yang sempat terpotong
-      const repayments = await tx
-        .select()
-        .from(cashAdvanceTxns)
-        .where(eq(cashAdvanceTxns.kind, "repay"));
-
-      for (const repayment of repayments) {
-        if (!repayment.payslipId || !slipIds.includes(repayment.payslipId)) continue;
-        await tx
-          .update(cashAdvances)
-          .set({
-            balance: sql`${cashAdvances.balance} + ${repayment.amount}`,
-            status: "approved",
-          })
-          .where(eq(cashAdvances.id, repayment.cashAdvanceId));
-        await tx.delete(cashAdvanceTxns).where(eq(cashAdvanceTxns.id, repayment.id));
-      }
-    }
-
+    await revertPayrollSettlements(tx, periodId);
     await tx.delete(payPeriods).where(eq(payPeriods.id, periodId));
   });
 

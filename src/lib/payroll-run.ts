@@ -2,14 +2,27 @@ import "server-only";
 
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { cashAdvances, employees, timeEntries, workTasks } from "@/db/schema";
+import { cashAdvancePlans, cashAdvances, employees, timeEntries, workTasks } from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
+import { advanceLabel, isAdvanceEligible, resolveAdvanceDeduction } from "@/lib/kasbon";
 import type { Period } from "@/lib/period";
 import { toNumber } from "@/lib/format";
+
+export type AdvanceSummary = {
+  /** Total yang akan dipotong dari slip periode ini. */
+  deductTotal: number;
+  /** Jumlah kasbon yang ditunda karyawan/admin. */
+  deferredCount: number;
+  /** Sisa saldo kasbon yang ditunda. */
+  deferredTotal: number;
+  /** Jumlah kasbon aktif (approved & bersaldo). */
+  activeCount: number;
+};
 
 export type PayrollRow = {
   employee: typeof employees.$inferSelect;
   computation: PayslipComputation;
+  advanceSummary: AdvanceSummary;
 };
 
 export type PayrollPreview = {
@@ -18,6 +31,13 @@ export type PayrollPreview = {
   totalDeductions: number;
   totalNet: number;
   employeeCount: number;
+};
+
+const EMPTY_SUMMARY: AdvanceSummary = {
+  deductTotal: 0,
+  deferredCount: 0,
+  deferredTotal: 0,
+  activeCount: 0,
 };
 
 /** Hitung ulang payroll dari data mentah (approved) untuk sebuah periode. */
@@ -72,7 +92,43 @@ export async function previewPayroll(
       ),
     );
 
+  // Keputusan karyawan/admin khusus untuk periode ini (potong sebagian / tunda).
+  const plans = await db
+    .select({
+      cashAdvanceId: cashAdvancePlans.cashAdvanceId,
+      decision: cashAdvancePlans.decision,
+      amount: cashAdvancePlans.amount,
+    })
+    .from(cashAdvancePlans)
+    .where(and(eq(cashAdvancePlans.orgId, orgId), eq(cashAdvancePlans.periodStart, period.start)));
+
+  const planByAdvance = new Map(plans.map((plan) => [plan.cashAdvanceId, plan]));
+
   const rows: PayrollRow[] = staff.map((employee) => {
+    const own = advances.filter(
+      (advance) =>
+        advance.employeeId === employee.id &&
+        toNumber(advance.balance) > 0 &&
+        isAdvanceEligible(advance, period.end),
+    );
+
+    const resolved = own.map((advance, index) => ({
+      advance,
+      resolution: resolveAdvanceDeduction(advance, planByAdvance.get(advance.id)),
+      label: advanceLabel(advance, index, own.length),
+    }));
+
+    const advanceSummary: AdvanceSummary = resolved.length
+      ? {
+          activeCount: resolved.length,
+          deductTotal: resolved.reduce((sum, item) => sum + item.resolution.amount, 0),
+          deferredCount: resolved.filter((item) => item.resolution.deferred).length,
+          deferredTotal: resolved
+            .filter((item) => item.resolution.deferred)
+            .reduce((sum, item) => sum + toNumber(item.advance.balance), 0),
+        }
+      : EMPTY_SUMMARY;
+
     const computation = computePayslip({
       payType: employee.payType,
       payRate: employee.payRate,
@@ -99,16 +155,18 @@ export async function previewPayroll(
           unitRate: task.unitRate,
           workDate: task.workDate,
         })),
-      advances: advances
-        .filter((advance) => advance.employeeId === employee.id && toNumber(advance.balance) > 0)
-        .map((advance) => ({
-          id: advance.id,
-          balance: advance.balance,
-          installmentAmount: advance.installmentAmount,
-        })),
+      advances: resolved.map((item) => ({
+        id: item.advance.id,
+        balance: item.advance.balance,
+        installmentAmount: item.advance.installmentAmount,
+        amountOverride:
+          item.resolution.source === "plan-amount" ? item.resolution.amount : null,
+        deferred: item.resolution.deferred,
+        label: item.label,
+      })),
     });
 
-    return { employee, computation };
+    return { employee, computation, advanceSummary };
   });
 
   const totalGross = rows.reduce((sum, row) => sum + row.computation.gross, 0);
@@ -122,4 +180,39 @@ export async function previewPayroll(
     totalNet,
     employeeCount: rows.length,
   };
+}
+
+/** Kasbon aktif milik karyawan + keputusan untuk periode tertentu (dipakai halaman kasbon). */
+export async function advancePlansForPeriod(
+  orgId: string,
+  period: Period,
+  options: { employeeId?: string } = {},
+) {
+  const where = [eq(cashAdvances.orgId, orgId), eq(cashAdvances.status, "approved")];
+  if (options.employeeId) where.push(eq(cashAdvances.employeeId, options.employeeId));
+
+  const [advances, plans] = await Promise.all([
+    db
+      .select()
+      .from(cashAdvances)
+      .where(and(...where))
+      .orderBy(cashAdvances.requestedAt),
+    db
+      .select()
+      .from(cashAdvancePlans)
+      .where(and(eq(cashAdvancePlans.orgId, orgId), eq(cashAdvancePlans.periodStart, period.start))),
+  ]);
+
+  const planByAdvance = new Map(plans.map((plan) => [plan.cashAdvanceId, plan]));
+
+  return advances
+    .filter((advance) => toNumber(advance.balance) > 0 && isAdvanceEligible(advance, period.end))
+    .map((advance) => {
+      const plan = planByAdvance.get(advance.id);
+      return {
+        advance,
+        plan,
+        resolution: resolveAdvanceDeduction(advance, plan),
+      };
+    });
 }

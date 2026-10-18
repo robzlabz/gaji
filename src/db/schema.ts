@@ -334,6 +334,38 @@ export const cashAdvanceTxns = pgTable(
   (t) => [index("cash_advance_txns_adv_idx").on(t.cashAdvanceId, t.occurredAt)],
 );
 
+/**
+ * Rencana pemotongan kasbon per periode gaji.
+ * Satu baris = satu keputusan karyawan/admin untuk satu kasbon pada satu periode:
+ * `deduct` (potong periode ini, opsional sebagian) atau `defer` (tunda ke periode berikutnya).
+ * Tanpa baris = ikut aturan default (cicilan, atau penuh bila cicilan kosong).
+ */
+export const cashAdvancePlans = pgTable(
+  "cash_advance_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    cashAdvanceId: uuid("cash_advance_id")
+      .notNull()
+      .references(() => cashAdvances.id, { onDelete: "cascade" }),
+    /** Tanggal mulai periode gaji yang menjadi target keputusan ini. */
+    periodStart: date("period_start").notNull(),
+    /** "deduct" | "defer" */
+    decision: text("decision").notNull(),
+    /** Nominal potong untuk periode ini; null = pakai cicilan / sisa penuh. */
+    amount: numeric("amount", { precision: 14, scale: 2 }),
+    note: text("note"),
+    decidedBy: uuid("decided_by").references(() => user.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("cash_advance_plans_uniq").on(t.cashAdvanceId, t.periodStart),
+    index("cash_advance_plans_period_idx").on(t.orgId, t.periodStart),
+  ],
+);
+
 /* ------------------------------------------------------------------ */
 /* Payroll                                                             */
 /* ------------------------------------------------------------------ */
