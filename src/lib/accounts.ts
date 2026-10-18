@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { account, user } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { normalizePhone } from "@/lib/format";
+import { isValidPhone, normalizePhone } from "@/lib/format";
 
 export class AccountError extends Error {}
 
@@ -17,9 +17,12 @@ export async function createCredentialUser(input: {
   phone: string;
   pin: string;
   email?: string | null;
+  /** Kode panggil negara (default 62 = Indonesia). */
+  dial?: string;
 }): Promise<{ userId: string; phone: string }> {
-  const phone = normalizePhone(input.phone);
-  if (!/^62\d{8,15}$/.test(phone)) throw new AccountError("Nomor HP tidak valid.");
+  const dial = input.dial?.replace(/\D/g, "") || "62";
+  const phone = normalizePhone(input.phone, dial);
+  if (!isValidPhone(phone, dial)) throw new AccountError("Nomor HP tidak valid.");
   if (!/^\d{6}$/.test(input.pin)) throw new AccountError("PIN harus 6 digit angka.");
 
   const email = input.email?.trim() || `${phone}@pin.gaji.local`;

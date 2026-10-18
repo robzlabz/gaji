@@ -6,9 +6,11 @@ import { authClient } from "@/lib/auth-client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { normalizePhone } from "@/lib/format";
+import { PhoneInput } from "@/components/phone-input";
+import { isValidPhone, normalizePhone } from "@/lib/format";
 
 export function LoginForm({ next }: { next?: string }) {
+  const [dial, setDial] = useState("62");
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -18,8 +20,10 @@ export function LoginForm({ next }: { next?: string }) {
     event.preventDefault();
     setError(null);
 
-    const normalized = normalizePhone(phone);
-    if (!/^62\d{8,15}$/.test(normalized)) {
+    // Sanitasi terakhir di klien; server tetap memvalidasi ulang.
+    // Menerima 0822…, 822…, 62 822…, +62 822… → 62822…
+    const normalized = normalizePhone(phone, dial);
+    if (!isValidPhone(normalized, dial)) {
       setError("Nomor HP tidak valid. Contoh: 08123456789");
       return;
     }
@@ -49,17 +53,17 @@ export function LoginForm({ next }: { next?: string }) {
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <label className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted-foreground">Nomor HP</span>
-        <Input
-          inputMode="tel"
-          autoComplete="tel"
-          placeholder="08123456789"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          required
+        <PhoneInput
+          name="phone"
+          defaultDial="ID"
+          onChange={({ dial: nextDial, phone: nextPhone }) => {
+            setDial(nextDial);
+            setPhone(nextPhone);
+          }}
         />
-      </label>
+      </div>
 
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted-foreground">PIN (6 digit)</span>

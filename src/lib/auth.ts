@@ -46,7 +46,7 @@ export const auth = betterAuth({
       sendOTP: async () => {
         throw new Error("OTP tidak diaktifkan pada aplikasi ini.");
       },
-      phoneNumberValidator: (value) => /^62\d{8,15}$/.test(value),
+      phoneNumberValidator: (value) => /^\d{8,15}$/.test(value),
     }),
   ],
 });

@@ -1,21 +1,65 @@
 export const APP_NAME = "Gaji";
 
-/** Normalisasi nomor HP Indonesia ke format 62xxxxxxxxxx */
-export function normalizePhone(raw: string): string {
-  let digits = raw.replace(/[^\d+]/g, "");
-  digits = digits.replace(/^\+/, "");
-  if (digits.startsWith("0")) digits = "62" + digits.slice(1);
-  if (digits.startsWith("8")) digits = "62" + digits;
-  return digits;
+/**
+ * Normalisasi nomor HP ke bentuk digit lengkap dengan kode negara (tanpa "+").
+ * Contoh dengan kode 62: "0822-2222-222" / "+62 822 2222 222" / "62822222222" /
+ * "822222222" semuanya menjadi "62822222222".
+ *
+ * Aturan: buang semua non-digit, buang kode negara bila user mengetiknya sendiri,
+ * lalu buang trunk prefix "0" dan tambahkan kode negara sekali saja (idempoten).
+ */
+export function normalizePhone(raw: string, dialCode: string = "62"): string {
+  const cc = dialCode.replace(/\D/g, "");
+  if (!cc) return "";
+
+  let digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+
+  // Buang trunk prefix "0" dan prefix internasional "00" lebih dulu, supaya
+  // "0822…" dan "0062 822…" sama-sama bersih sebelum deteksi kode negara.
+  digits = digits.replace(/^0+/, "");
+
+  // Kode negara sudah diketik user (mis. "62 822…" / "+62 0822…").
+  // Syarat sisa digit >= 6 agar nomor lokal yang kebetulan diawali angka yang
+  // sama dengan kode negara tidak ikut terpotong; kalau sisa < 6 anggap nomor
+  // sudah ber-kode negara supaya fungsi ini idempoten.
+  if (digits.startsWith(cc)) {
+    if (digits.length - cc.length >= 6) {
+      digits = digits.slice(cc.length).replace(/^0+/, "");
+    } else {
+      return digits;
+    }
+  }
+
+  return digits ? cc + digits : "";
 }
 
-export function isValidPhone(raw: string): boolean {
-  return /^62\d{8,15}$/.test(normalizePhone(raw));
+export function isValidPhone(raw: string, dialCode: string = "62"): boolean {
+  const cc = dialCode.replace(/\D/g, "");
+  const normalized = normalizePhone(raw, cc);
+  if (!cc || !normalized.startsWith(cc)) return false;
+  // E.164: panjang total 8–15 digit, dan minimal 6 digit nomor nasional.
+  return normalized.length <= 15 && normalized.length - cc.length >= 6;
+}
+
+/** Tampilan ramah: +62 812-3456-7890 */
+export function formatPhoneDisplay(digits: string, dialCode: string = "62"): string {
+  const cc = dialCode.replace(/\D/g, "");
+  const national = digits.replace(/\D/g, "").startsWith(cc)
+    ? digits.replace(/\D/g, "").slice(cc.length)
+    : digits.replace(/\D/g, "");
+  if (!national) return "";
+  // Nomor Indonesia: 812-3456-7890 (3-4-4). Selain itu kelompokkan per 4 digit.
+  const grouped =
+    cc === "62" && national.length >= 8
+      ? `${national.slice(0, 3)}-${national.slice(3, 7)}-${national.slice(7)}`
+      : national.replace(/(\d{4})(?=\d)/g, "$1-");
+  return `+${cc} ${grouped}`;
 }
 
 export function formatPhone(phone: string): string {
-  if (!phone.startsWith("62")) return phone;
-  return "+" + phone;
+  const digits = phone.replace(/\D/g, "");
+  return digits ? "+" + digits : "";
 }
 
 export function toNumber(value: string | number | null | undefined): number {

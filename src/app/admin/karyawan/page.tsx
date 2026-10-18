@@ -5,6 +5,7 @@ import { employees } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { createEmployeeAction } from "../actions";
 import { Flash } from "@/components/flash";
+import { PhoneInput } from "@/components/phone-input";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { CheckField, FormField, SelectInput } from "@/components/form-field";
@@ -76,9 +77,10 @@ export default async function EmployeesPage({
             <FormField label="Tarif (Rp)" hint="per jam / hari / bulan / unit tugas">
               <Input name="payRate" inputMode="numeric" placeholder="25000" required />
             </FormField>
-            <FormField label="Nomor HP" hint="Dipakai untuk login">
-              <Input name="phone" inputMode="tel" placeholder="08123456789" />
-            </FormField>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Nomor HP</span>
+              <PhoneInput name="phone" dialName="phoneDial" defaultDial="ID" placeholder="8123456789" />
+            </div>
 
             <FormField label="PIN awal" hint="6 digit angka">
               <Input name="pin" inputMode="numeric" maxLength={6} placeholder="123456" />
