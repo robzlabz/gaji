@@ -9,6 +9,7 @@ import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -106,7 +107,7 @@ export default async function PayrollDetailPage({
                     : "default"
             }
           >
-            {period.status}
+            {statusLabel(period.status)}
           </StatusBadge>
 
           {period.status === "draft" && (
@@ -180,7 +181,7 @@ export default async function PayrollDetailPage({
                       <CardDescription>
                         {PAY_TYPE_LABEL[slip.payType]} · tarif {rupiah(toNumber(slip.payRate))}
                       </CardDescription>
-                      <Button asChild variant="link" size="sm" className="mt-1 px-0">
+                      <Button asChild variant="outline" size="sm" className="mt-2">
                         <Link href={`/admin/payroll/${period.id}/slip/${slip.employeeId}`}>
                           Cetak slip
                         </Link>

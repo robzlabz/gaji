@@ -35,10 +35,11 @@ export function rupiah(value: string | number | null | undefined): string {
 
 export function rupiahShort(value: string | number | null | undefined): string {
   const n = Math.round(toNumber(value));
-  if (Math.abs(n) >= 1_000_000_000) return `Rp${(n / 1_000_000_000).toFixed(1)} M`;
-  if (Math.abs(n) >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(1)} jt`;
-  if (Math.abs(n) >= 1_000) return `Rp${(n / 1_000).toFixed(0)} rb`;
-  return `Rp${n}`;
+  const dec = (x: number) => x.toFixed(1).replace(".", ",");
+  if (Math.abs(n) >= 1_000_000_000) return `Rp ${dec(n / 1_000_000_000)} M`;
+  if (Math.abs(n) >= 1_000_000) return `Rp ${dec(n / 1_000_000)} jt`;
+  if (Math.abs(n) >= 1_000) return `Rp ${Math.round(n / 1_000)} rb`;
+  return `Rp ${n}`;
 }
 
 export function parseMoneyInput(raw: FormDataEntryValue | null | undefined): number {

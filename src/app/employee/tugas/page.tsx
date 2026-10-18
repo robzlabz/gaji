@@ -6,6 +6,7 @@ import { markTaskDoneAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateID, rupiah, toNumber } from "@/lib/format";
@@ -108,7 +109,7 @@ export default async function EmployeeTasks({
                       {rupiah(toNumber(task.qty) * toNumber(task.unitRate))}
                     </span>
                     <StatusBadge tone={task.status === "approved" ? "good" : "bad"}>
-                      {task.status}
+                      {statusLabel(task.status)}
                     </StatusBadge>
                   </span>
                 </li>

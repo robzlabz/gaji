@@ -7,6 +7,7 @@ import { decideTimeEntryAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +40,7 @@ export default async function AttendancePage({
       status: timeEntries.status,
       source: timeEntries.source,
       inPhoto: timeEntries.inPhoto,
+      outPhoto: timeEntries.outPhoto,
       inLat: timeEntries.inLat,
       inLng: timeEntries.inLng,
       withinGeofence: timeEntries.withinGeofence,
@@ -147,18 +149,30 @@ export default async function AttendancePage({
                             row.status === "approved" ? "good" : row.status === "rejected" ? "bad" : "warn"
                           }
                         >
-                          {row.status}
+                          {statusLabel(row.status)}
                         </StatusBadge>
                       </div>
                     </div>
 
-                    {row.inPhoto && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={row.inPhoto}
-                        alt={`Foto clock in ${row.employeeName}`}
-                        className="mt-2 h-24 w-24 rounded-lg border object-cover"
-                      />
+                    {(row.inPhoto || row.outPhoto) && (
+                      <div className="mt-2 flex gap-2">
+                        {row.inPhoto && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={row.inPhoto}
+                            alt={`Foto clock in ${row.employeeName}`}
+                            className="h-24 w-24 rounded-lg border object-cover"
+                          />
+                        )}
+                        {row.outPhoto && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={row.outPhoto}
+                            alt={`Foto clock out ${row.employeeName}`}
+                            className="h-24 w-24 rounded-lg border object-cover"
+                          />
+                        )}
+                      </div>
                     )}
 
                     {row.status === "pending" && (

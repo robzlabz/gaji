@@ -4,6 +4,7 @@ import { timeEntries } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateID, formatTimeID, localDateString, minutesToHoursLabel } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
@@ -88,7 +89,7 @@ export default async function EmployeeHistory() {
                     <StatusBadge
                       tone={row.status === "approved" ? "good" : row.status === "rejected" ? "bad" : "warn"}
                     >
-                      {row.status}
+                      {statusLabel(row.status)}
                     </StatusBadge>
                   </div>
                 </li>

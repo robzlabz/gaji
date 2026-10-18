@@ -50,7 +50,10 @@ export async function requireOrg(): Promise<OrgContext> {
     .select({ membership: memberships, org: organizations })
     .from(memberships)
     .innerJoin(organizations, eq(memberships.orgId, organizations.id))
-    .where(eq(memberships.userId, user.id));
+    .where(eq(memberships.userId, user.id))
+    // Urutan wajib deterministik: tanpa ini org aktif bisa berganti-ganti antar request
+    // ketika user punya lebih dari satu membership dan cookie belum diset.
+    .orderBy(memberships.createdAt, organizations.id);
 
   if (rows.length === 0) redirect("/no-access");
 

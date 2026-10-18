@@ -8,6 +8,7 @@ import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -163,7 +164,7 @@ export default async function PayrollPage({
                                 : "default"
                         }
                       >
-                        {row.status}
+                        {statusLabel(row.status)}
                       </StatusBadge>
                     </TableCell>
                   </TableRow>

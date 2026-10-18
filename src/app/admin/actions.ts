@@ -23,7 +23,10 @@ import { AccountError, createCredentialUser, setPin } from "@/lib/accounts";
 import { audit } from "@/lib/audit";
 import { previewPayroll } from "@/lib/payroll-run";
 import { ORG_COOKIE, requireAdmin } from "@/lib/session";
-import { normalizePhone, parseMoneyInput, toNumber, localDateString } from "@/lib/format";
+import { normalizePhone, parseMoneyInput, toNumber, localDateString, formatDateID } from "@/lib/format";
+
+/** Zona waktu yang boleh dipilih; menentukan batas tanggal absensi & periode gaji. */
+const TIMEZONE_OPTIONS = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"];
 
 function str(fd: FormData, key: string): string {
   const value = fd.get(key);
@@ -33,6 +36,14 @@ function str(fd: FormData, key: string): string {
 function optionalStr(fd: FormData, key: string): string | null {
   const value = str(fd, key);
   return value === "" ? null : value;
+}
+
+/** Angka opsional: kosong atau bukan angka dianggap tidak diisi. */
+function optionalNumber(fd: FormData, key: string): number | null {
+  const value = str(fd, key).replace(",", ".");
+  if (value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function fail(path: string, message: string): never {
@@ -62,6 +73,11 @@ export async function updateOrgSettingsAction(formData: FormData) {
   const alertDays = Math.max(0, Number(str(formData, "contractAlertDays")) || 60);
   const workingDays = Math.min(31, Math.max(1, Number(str(formData, "workingDaysPerMonth")) || 22));
   const multiplier = Math.max(1, Number(str(formData, "overtimeMultiplier")) || 1);
+  const timezone = str(formData, "timezone");
+  const timezoneSafe = TIMEZONE_OPTIONS.some((option) => option === timezone) ? timezone : org.timezone;
+  const geofenceLat = optionalNumber(formData, "geofenceLat");
+  const geofenceLng = optionalNumber(formData, "geofenceLng");
+  const geofenceRadius = optionalNumber(formData, "geofenceRadiusM");
 
   await db
     .update(organizations)
@@ -70,6 +86,10 @@ export async function updateOrgSettingsAction(formData: FormData) {
       contractAlertDays: alertDays,
       workingDaysPerMonth: workingDays,
       overtimeMultiplier: multiplier.toFixed(2),
+      timezone: timezoneSafe,
+      geofenceLat,
+      geofenceLng,
+      geofenceRadiusM: geofenceRadius === null ? null : Math.round(geofenceRadius),
     })
     .where(eq(organizations.id, org.id));
 
@@ -79,7 +99,7 @@ export async function updateOrgSettingsAction(formData: FormData) {
     entity: "organizations",
     entityId: org.id,
     action: "update_settings",
-    diff: { startDay, alertDays, workingDays, multiplier },
+    diff: { startDay, alertDays, workingDays, multiplier, timezone: timezoneSafe, geofenceLat, geofenceLng, geofenceRadius },
   });
 
   revalidatePath("/admin/pengaturan");
@@ -266,6 +286,26 @@ export async function createContractAction(formData: FormData) {
   if (!startDate) fail(backTo, "Tanggal mulai kontrak wajib diisi.");
   if (kind !== "pkwtt" && !endDate) fail(backTo, "Kontrak PKWT wajib punya tanggal berakhir.");
   if (endDate && endDate <= startDate) fail(backTo, "Tanggal berakhir harus setelah tanggal mulai.");
+
+  // Cegah dua kontrak aktif yang periodenya bertumpuk untuk karyawan yang sama.
+  if (!renewedFromId) {
+    const active = await db
+      .select({ startDate: contracts.startDate, endDate: contracts.endDate })
+      .from(contracts)
+      .where(and(eq(contracts.employeeId, employeeId), eq(contracts.status, "active")));
+
+    const newEnd = endDate ?? "9999-12-31";
+    const overlap = active.find(
+      (row) => row.startDate <= newEnd && startDate <= (row.endDate ?? "9999-12-31"),
+    );
+
+    if (overlap) {
+      fail(
+        backTo,
+        `Karyawan masih punya kontrak aktif (${formatDateID(overlap.startDate)} s/d ${overlap.endDate ? formatDateID(overlap.endDate) : "tanpa batas"}). Pakai Perpanjang atau akhiri kontrak lama dulu.`,
+      );
+    }
+  }
 
   const [contract] = await db
     .insert(contracts)

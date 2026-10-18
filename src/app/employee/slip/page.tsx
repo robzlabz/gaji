@@ -5,6 +5,7 @@ import { payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -74,7 +75,7 @@ export default async function EmployeePayslips() {
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge tone={slip.status === "paid" ? "good" : "info"}>
-                    {slip.status}
+                    {statusLabel(slip.status)}
                   </StatusBadge>
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/employee/slip/${slip.id}`}>Detail</Link>

@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/session";
 import { updateOrgSettingsAction } from "../actions";
 import { Flash } from "@/components/flash";
-import { FormField } from "@/components/form-field";
+import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -73,6 +73,52 @@ export default async function SettingsPage({
                 min={1}
                 max={5}
                 defaultValue={Number(org.overtimeMultiplier)}
+              />
+            </FormField>
+            <FormField
+              label="Zona waktu"
+              hint="Menentukan tanggal absensi & batas periode gaji."
+            >
+              <SelectInput name="timezone" defaultValue={org.timezone}>
+                {["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"].map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <div className="sm:col-span-2 border-t pt-3">
+              <p className="text-sm font-medium">Lokasi absensi (opsional)</p>
+              <p className="text-xs text-muted-foreground">
+                Isi koordinat kantor agar clock in di luar radius ditandai “luar area”. Kosongkan
+                untuk mematikan pengecekan.
+              </p>
+            </div>
+            <FormField label="Latitude kantor" hint="Contoh: -6.2088">
+              <Input
+                name="geofenceLat"
+                type="number"
+                step="any"
+                inputMode="decimal"
+                defaultValue={org.geofenceLat ?? ""}
+              />
+            </FormField>
+            <FormField label="Longitude kantor" hint="Contoh: 106.8456">
+              <Input
+                name="geofenceLng"
+                type="number"
+                step="any"
+                inputMode="decimal"
+                defaultValue={org.geofenceLng ?? ""}
+              />
+            </FormField>
+            <FormField label="Radius (meter)" hint="Jarak maksimal dari titik kantor.">
+              <Input
+                name="geofenceRadiusM"
+                type="number"
+                min={10}
+                max={20000}
+                defaultValue={org.geofenceRadiusM ?? ""}
               />
             </FormField>
             <div className="sm:col-span-2">

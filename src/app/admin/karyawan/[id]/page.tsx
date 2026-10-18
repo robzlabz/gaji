@@ -21,6 +21,7 @@ import {
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { CheckField, FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -283,7 +284,7 @@ export default async function EmployeeDetailPage({
                                     : "warn"
                             }
                           >
-                            {row.status}
+                            {statusLabel(row.status)}
                           </StatusBadge>
                         </TableCell>
                       </TableRow>
@@ -299,7 +300,10 @@ export default async function EmployeeDetailPage({
       <Card>
         <CardHeader>
           <CardTitle>Kontrak</CardTitle>
-          <CardDescription>Kontrak baru menggantikan yang lama (status lama menjadi renewed).</CardDescription>
+          <CardDescription>
+            Tambah kontrak baru hanya jika tidak ada kontrak aktif. Untuk memperbarui, pakai
+            Perpanjang di halaman Kontrak.
+          </CardDescription>
           <CardAction>
             <Button asChild variant="ghost" size="sm">
               <Link href="/admin/kontrak">Semua kontrak</Link>
@@ -337,7 +341,7 @@ export default async function EmployeeDetailPage({
                           row.status === "active" ? "good" : row.status === "expired" ? "bad" : "default"
                         }
                       >
-                        {row.status}
+                        {statusLabel(row.status)}
                       </StatusBadge>
                     </TableCell>
                   </TableRow>
@@ -441,7 +445,7 @@ export default async function EmployeeDetailPage({
                             row.status === "approved" ? "good" : row.status === "rejected" ? "bad" : "warn"
                           }
                         >
-                          {row.status}
+                          {statusLabel(row.status)}
                         </StatusBadge>
                       </TableCell>
                     </TableRow>
@@ -482,7 +486,7 @@ export default async function EmployeeDetailPage({
                       </TableCell>
                       <TableCell>
                         <StatusBadge tone={row.status === "paid" ? "good" : "default"}>
-                          {row.status}
+                          {statusLabel(row.status)}
                         </StatusBadge>
                       </TableCell>
                     </TableRow>

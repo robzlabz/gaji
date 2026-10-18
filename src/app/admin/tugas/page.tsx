@@ -7,6 +7,7 @@ import { createTaskAction, decideTaskAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -139,7 +140,7 @@ export default async function TasksPage({
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge tone={task.status === "done" ? "warn" : "default"}>
-                    {task.status}
+                    {statusLabel(task.status)}
                   </StatusBadge>
                   <Button type="submit" name="decision" value="approve" size="sm">
                     Setujui
@@ -208,7 +209,7 @@ export default async function TasksPage({
                                 : "default"
                         }
                       >
-                        {task.status}
+                        {statusLabel(task.status)}
                       </StatusBadge>
                     </TableCell>
                   </TableRow>

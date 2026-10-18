@@ -8,6 +8,7 @@ import { localDateString, formatDateID, PAY_TYPE_LABEL, rupiah, rupiahShort, toN
 import { periodContaining, periodLabel } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { EmptyState } from "@/components/empty-state";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -242,7 +243,7 @@ export default async function AdminDashboard() {
                           : "default"
                     }
                   >
-                    {latestPeriod.status}
+                    {statusLabel(latestPeriod.status)}
                   </StatusBadge>
                 </p>
               ) : (
@@ -294,7 +295,7 @@ export default async function AdminDashboard() {
                           row.status === "approved" ? "good" : row.status === "rejected" ? "bad" : "warn"
                         }
                       >
-                        {row.status}
+                        {statusLabel(row.status)}
                       </StatusBadge>
                     </TableCell>
                   </TableRow>

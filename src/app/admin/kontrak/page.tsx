@@ -8,6 +8,7 @@ import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
+import { statusLabel } from "@/lib/labels";
 import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -91,6 +92,17 @@ export default async function ContractsPage({
     .from(employees)
     .where(and(eq(employees.orgId, org.id), eq(employees.isActive, true)))
     .orderBy(employees.fullName);
+
+  // Form tambah kontrak hanya untuk karyawan yang belum punya kontrak aktif.
+  const activeContractEmployeeIds = new Set(
+    (
+      await db
+        .select({ employeeId: contracts.employeeId })
+        .from(contracts)
+        .where(and(eq(contracts.orgId, org.id), eq(contracts.status, "active")))
+    ).map((row) => row.employeeId),
+  );
+  const staffWithoutActiveContract = staff.filter((row) => !activeContractEmployeeIds.has(row.id));
 
   const activeCount = rows.filter((row) => row.status === "active").length;
   const expiringCount = rows.filter(
@@ -275,7 +287,7 @@ export default async function ContractsPage({
                                   : "bad"
                           }
                         >
-                          {row.status}
+                          {statusLabel(row.status)}
                         </StatusBadge>
                       </TableCell>
                       <TableCell>
@@ -308,7 +320,11 @@ export default async function ContractsPage({
       <Card>
         <CardHeader>
           <CardTitle>Tambah kontrak baru</CardTitle>
-          <CardDescription>Untuk karyawan yang belum punya kontrak di sistem.</CardDescription>
+          <CardDescription>
+            {staffWithoutActiveContract.length === 0
+              ? "Semua karyawan aktif sudah punya kontrak. Pakai Perpanjang untuk memperbarui."
+              : "Untuk karyawan yang belum punya kontrak aktif."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form action={createContractAction} className="grid gap-3 sm:grid-cols-3">
@@ -316,7 +332,7 @@ export default async function ContractsPage({
             <FormField label="Karyawan">
               <SelectInput name="employeeId" required defaultValue="">
                 <option value="">Pilih karyawan…</option>
-                {staff.map((row) => (
+                {staffWithoutActiveContract.map((row) => (
                   <option key={row.id} value={row.id}>
                     {row.fullName}
                   </option>
