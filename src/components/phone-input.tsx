@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckIcon, ChevronDownIcon, SearchIcon } from "lucide-react";
 import { COUNTRIES, DEFAULT_COUNTRY, findCountry, type Country } from "@/lib/countries";
-import { formatPhoneDisplay, isValidPhone, normalizePhone } from "@/lib/format";
+import { isValidPhone, normalizePhone } from "@/lib/format";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ type PhoneInputProps = {
   autoFocus?: boolean;
   /** Dipanggil setiap kali nomor / kode negara berubah. */
   onChange?: (value: { country: string; dial: string; phone: string }) => void;
-  /** Tampilkan pratinjau hasil sanitasi di bawah input. */
+  /** Tampilkan pesan bantuan / peringatan nomor tidak valid di bawah input. */
   showPreview?: boolean;
   className?: string;
 };
@@ -208,17 +208,10 @@ export function PhoneInput({
         ) : null}
       </div>
 
-      {showPreview ? (
-        <span
-          className={cn(
-            "text-xs",
-            phone && !valid ? "text-destructive" : "text-muted-foreground",
-          )}
-        >
+      {showPreview && !valid ? (
+        <span className={cn("text-xs", phone ? "text-destructive" : "text-muted-foreground")}>
           {phone
-            ? valid
-              ? `Akan dipakai: ${formatPhoneDisplay(normalized, country.dial)}`
-              : "Nomor belum valid — periksa jumlah digit."
+            ? "Nomor belum valid — periksa jumlah digit."
             : `Format bebas: 0812…, 812…, atau +${country.dial} 812…`}
         </span>
       ) : null}
