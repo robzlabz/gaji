@@ -1,0 +1,64 @@
+name: Deploy
+
+# Deploy otomatis ke Easypanel setiap push ke main.
+# Butuh repo secret: EASYPANEL_DEPLOY_WEBHOOK
+#   Easypanel → project `client` → service `gaji` → Deployments → Deploy Webhook
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build check & deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (verifikasi)
+        run: npm run build
+        env:
+          # Placeholder: build tidak menyentuh database.
+          DATABASE_URL: postgres://build:build@127.0.0.1:5432/build
+          BETTER_AUTH_SECRET: build-time-placeholder-0000000000000000000000000000
+          BETTER_AUTH_URL: http://localhost:3000
+
+      - name: Trigger Easypanel deploy
+        env:
+          WEBHOOK: ${{ secrets.EASYPANEL_DEPLOY_WEBHOOK }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::error::Secret EASYPANEL_DEPLOY_WEBHOOK belum di-set di repo ini."
+            exit 1
+          fi
+          curl -fsS -X POST "$WEBHOOK" -H 'Content-Type: application/json' -d '{}'
+          echo "Deploy terkirim ke Easypanel."
+
+      - name: Tunggu sampai live
+        run: |
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://gaji.timbolu.com/login || true)
+            echo "percobaan $i -> HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Aplikasi live di https://gaji.timbolu.com"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Aplikasi belum merespons 200 setelah 10 menit — cek log deploy di Easypanel."
+          exit 1
