@@ -20,7 +20,8 @@
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* Digelapkan dari 0.577 agar teks destructive di atas tint /10 lolos AA (>=4.5). */
+  --destructive: oklch(0.505 0.19 27.3);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -54,7 +55,8 @@
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  /* Diterangkan dari 0.704 agar teks destructive di atas tint /20 lolos AA. */
+  --destructive: oklch(0.81 0.105 27.3);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);

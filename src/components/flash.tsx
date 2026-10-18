@@ -1,25 +1,34 @@
-import { CircleCheckIcon, CircleAlertIcon } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+"use client";
 
-/** Pesan hasil aksi (dari query string ?ok / ?err) memakai Alert shadcn. */
+import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+/**
+ * Pesan hasil server action (`?ok=` / `?err=`) ditampilkan sebagai toast Sonner.
+ * Setelah tampil, query string dibersihkan lewat router.replace supaya toast tidak
+ * muncul lagi saat halaman di-refresh atau tombol back ditekan.
+ */
 export function Flash({ ok, err }: { ok?: string; err?: string }) {
-  if (!ok && !err) return null;
+  const router = useRouter();
+  const shown = useRef(false);
 
-  if (err) {
-    return (
-      <Alert variant="destructive">
-        <CircleAlertIcon />
-        <AlertTitle>Gagal</AlertTitle>
-        <AlertDescription>{err}</AlertDescription>
-      </Alert>
-    );
-  }
+  useEffect(() => {
+    if (!ok && !err) return;
+    if (shown.current) return;
+    shown.current = true;
 
-  return (
-    <Alert>
-      <CircleCheckIcon />
-      <AlertTitle>Berhasil</AlertTitle>
-      <AlertDescription>{ok}</AlertDescription>
-    </Alert>
-  );
+    if (err) {
+      toast.error("Gagal", { description: err, duration: 8000 });
+    } else {
+      toast.success("Berhasil", { description: ok, duration: 4000 });
+    }
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("ok");
+    url.searchParams.delete("err");
+    router.replace(`${url.pathname}${url.search}`, { scroll: false });
+  }, [ok, err, router]);
+
+  return null;
 }

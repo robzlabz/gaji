@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export type Tone = "default" | "good" | "warn" | "bad" | "info";
 
 const TONE_CLASS: Record<Tone, string> = {
-  default: "border-border bg-muted text-muted-foreground",
+  default: "border-border bg-muted text-stone-600 dark:text-stone-300",
   good: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   warn: "border-amber-500/30 bg-amber-500/15 text-amber-800 dark:text-amber-400",
   bad: "border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-400",
