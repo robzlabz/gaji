@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/session";
 import { ROLE_LABEL } from "@/lib/format";
-import { AdminMobileNav, AdminNav } from "@/components/nav";
+import { AdminBottomNav, AdminNav } from "@/components/nav";
 import { OrgSwitcher, SignOutButton } from "@/components/session-controls";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
@@ -40,12 +40,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <SignOutButton />
             </div>
           </div>
-
-          <AdminMobileNav />
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col gap-5 pb-10">{children}</main>
+        {/* pb-24 memberi ruang untuk bottom navigation di mobile. */}
+        <main className="flex min-w-0 flex-1 flex-col gap-5 pb-24 md:pb-10">{children}</main>
       </div>
+
+      <AdminBottomNav />
     </div>
   );
 }
