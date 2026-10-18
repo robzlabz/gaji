@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -10,15 +13,37 @@ export type TabNavItem = {
 };
 
 /**
- * Tab navigasi berbasis URL (server component, tanpa state klien).
+ * Tab navigasi berbasis URL (bukan state klien).
  * Setiap tab punya URL sendiri sehingga tab tetap terbuka setelah server action
  * melakukan redirect — perilaku yang tidak didapat dari Tabs radix client-side.
+ * Di layar sempit tab aktif digulir otomatis ke area terlihat.
  */
-export function TabNav({ items, active }: { items: TabNavItem[]; active: string }) {
+export function TabNav({
+  items,
+  active,
+  label,
+}: {
+  items: TabNavItem[];
+  active: string;
+  label?: string;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    const list = listRef.current;
+    const tab = activeRef.current;
+    if (!list || !tab) return;
+    // Gulir horizontal saja: jangan sampai halaman ikut melompat ke atas/bawah.
+    const left = tab.offsetLeft - (list.clientWidth - tab.clientWidth) / 2;
+    list.scrollTo({ left, behavior: "instant" as ScrollBehavior });
+  }, [active]);
+
   return (
     <div
+      ref={listRef}
       role="tablist"
-      aria-label="Detail karyawan"
+      aria-label={label ?? "Tab"}
       className="flex gap-1 overflow-x-auto rounded-lg bg-muted p-[3px] text-muted-foreground"
     >
       {items.map((item) => {
@@ -26,6 +51,7 @@ export function TabNav({ items, active }: { items: TabNavItem[]; active: string 
         return (
           <Link
             key={item.key}
+            ref={isActive ? activeRef : undefined}
             href={item.href}
             role="tab"
             aria-selected={isActive}

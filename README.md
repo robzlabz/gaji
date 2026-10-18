@@ -64,3 +64,47 @@ src/
 - Jam clock-in selalu dari server, bukan jam device.
 - Semua query difilter `org_id`, bukan hanya `employee_id`.
 - Kontrak yang sudah berjalan menyetir `employees.pay_rate` + dicatat di `pay_rate_history`.
+
+## Deployment
+
+Produksi jalan di **Easypanel** (`http://43.156.18.75:3000`), project `client`:
+
+| Komponen | Nama | Keterangan |
+|---|---|---|
+| App | `client/gaji` | build dari repo ini (`Dockerfile`, port 3000) |
+| Database | `client/gaji-db` | Postgres 16, database & user `gaji` |
+| Domain | https://gaji.timbolu.com | Traefik + Let's Encrypt |
+
+### Env yang di-set di Easypanel
+
+```
+NODE_ENV=production
+DATABASE_URL=postgres://gaji:<password>@client_gaji-db:5432/gaji
+BETTER_AUTH_SECRET=<32+ karakter acak>
+BETTER_AUTH_URL=https://gaji.timbolu.com
+```
+
+### Alur deploy
+
+1. Push ke `main` → Easypanel auto-deploy (webhook GitHub App) **dan** workflow `.github/workflows/deployment.yml`.
+2. Image dibangun dari `Dockerfile` (multi-stage, `output: "standalone"`).
+3. Saat container start: `node scripts/migrate.mjs` menjalankan migrasi Drizzle di `drizzle/` (dicatat di tabel `app_migrations`), lalu `node server.js`.
+
+### Ubah schema
+
+```bash
+npm run db:generate    # bikin SQL migrasi baru di drizzle/
+git add drizzle && git commit -m "chore(db): migrasi ..." && git push
+```
+
+Migrasi otomatis jalan saat deploy berikutnya — tidak perlu akses langsung ke database produksi.
+
+### Deploy manual
+
+```bash
+curl -X POST "http://43.156.18.75:3000/api/deploy/<service-token>"
+```
+
+Service token ada di Easypanel → project `client` → service `gaji` → Deployments.
+Workflow GitHub Actions memakai repo secret `EASYPANEL_DEPLOY_WEBHOOK` untuk URL di atas.
+
