@@ -87,6 +87,8 @@ BETTER_AUTH_URL=https://gaji.timbolu.com
 ### Alur deploy
 
 1. Push ke `main` → Easypanel auto-deploy (webhook GitHub App) **dan** workflow `.github/workflows/deployment.yml`.
+   > Saat ini auto-deploy Easypanel yang aktif karena GitHub Actions akun ini terkunci masalah billing.
+   > Kalau Actions sudah jalan, pilih salah satu: matikan `autoDeploy` di service `gaji`, atau hapus workflow-nya.
 2. Image dibangun dari `Dockerfile` (multi-stage, `output: "standalone"`).
 3. Saat container start: `node scripts/migrate.mjs` menjalankan migrasi Drizzle di `drizzle/` (dicatat di tabel `app_migrations`), lalu `node server.js`.
 
