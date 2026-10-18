@@ -8,12 +8,12 @@ export const metadata = { title: "Masuk — Gaji" };
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; tab?: string }>;
 }) {
   const session = await getSession();
   if (session?.user) redirect("/");
 
-  const { next } = await searchParams;
+  const { next, tab } = await searchParams;
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-10">
@@ -28,11 +28,13 @@ export default async function LoginPage({
 
         <Card>
           <CardHeader>
-            <CardTitle>Akun karyawan</CardTitle>
-            <CardDescription>Dibuat oleh admin perusahaan.</CardDescription>
+            <CardTitle>Masuk sebagai</CardTitle>
+            <CardDescription>
+              Pilih Karyawan atau Owner. Akun karyawan dibuat oleh admin perusahaan.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <LoginForm next={next} />
+            <LoginForm next={next} initialMode={tab === "owner" ? "owner" : "employee"} />
           </CardContent>
         </Card>
       </div>
