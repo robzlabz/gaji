@@ -10,6 +10,19 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL?.includes("localhost")
     ? undefined
     : process.env.BETTER_AUTH_URL,
+  // Tanpa ini Better Auth menolak request dari origin selain BETTER_AUTH_URL
+  // ("Invalid origin") — mis. dev server yang jatuh ke port 3001.
+  trustedOrigins: [
+    ...new Set(
+      [
+        process.env.BETTER_AUTH_URL,
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  ],
   secret: process.env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(db, {
     provider: "pg",

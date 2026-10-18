@@ -71,10 +71,14 @@ export function LoginForm({ next, initialMode = "employee" }: { next?: string; i
 
     if (signInError) {
       setLoading(false);
+      // Jangan samakan gangguan server dengan kredensial salah — dulu pesan
+      // "Nomor HP atau PIN salah" muncul juga saat API auth sedang error.
       setError(
         signInError.status === 429
           ? "Terlalu banyak percobaan. Coba lagi dalam 1 menit."
-          : "Nomor HP atau PIN salah.",
+          : !signInError.status || signInError.status >= 500
+            ? "Server sedang bermasalah. Coba lagi sebentar lagi."
+            : "Nomor HP atau PIN salah.",
       );
       return;
     }
