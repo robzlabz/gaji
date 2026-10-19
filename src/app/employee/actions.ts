@@ -1,12 +1,13 @@
 "use server";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { cashAdvances, timeEntries, workTasks } from "@/db/schema";
+import { cashAdvances, leaves, timeEntries, workTasks } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
+import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { requireEmployee } from "@/lib/session";
 import { localDateString, parseMoneyInput } from "@/lib/format";
 
@@ -274,4 +275,119 @@ export async function setMyAdvancePlanAction(formData: FormData) {
       ? "Kasbon ditunda ke periode gaji berikutnya."
       : "Kasbon akan dipotong pada periode ini.",
   );
+}
+
+/* ------------------------------- cuti -------------------------------- */
+
+/** Tanggal `YYYY-MM-DD` yang benar-benar ada (menolak 2026-02-31). */
+function dateField(fd: FormData, key: string): string | null {
+  const value = str(fd, key);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10) === value ? value : null;
+}
+
+export async function requestLeaveAction(formData: FormData) {
+  const { org, employee } = await requireEmployee();
+  const path = "/employee/cuti";
+
+  // Cuti hanya masuk akal untuk gaji bulanan: tipe lain dibayar dari kehadiran/tugas.
+  if (employee.payType !== "monthly") {
+    fail(path, "Cuti hanya berlaku untuk karyawan bulanan.");
+  }
+
+  const startDate = dateField(formData, "startDate");
+  const endDate = dateField(formData, "endDate") ?? startDate;
+  if (!startDate) fail(path, "Tanggal mulai cuti tidak valid.");
+  if (!endDate || endDate < startDate) {
+    fail(path, "Tanggal selesai tidak boleh sebelum tanggal mulai.");
+  }
+
+  const days = leaveWorkDays(startDate, endDate);
+  if (days === 0) fail(path, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
+
+  const [overlap] = await db
+    .select({ id: leaves.id })
+    .from(leaves)
+    .where(
+      and(
+        eq(leaves.employeeId, employee.id),
+        inArray(leaves.status, ["pending", "approved"]),
+        lte(leaves.startDate, endDate),
+        gte(leaves.endDate, startDate),
+      ),
+    )
+    .limit(1);
+
+  if (overlap) fail(path, "Sudah ada pengajuan cuti di rentang tanggal itu.");
+
+  const [row] = await db
+    .insert(leaves)
+    .values({
+      orgId: org.id,
+      employeeId: employee.id,
+      kind: normalizeLeaveKind(str(formData, "kind")),
+      startDate,
+      endDate,
+      days,
+      paid: str(formData, "paid") !== "0",
+      status: "pending",
+      note: str(formData, "note") || null,
+      requestedBy: employee.userId,
+    })
+    .returning();
+
+  await audit({
+    orgId: org.id,
+    actorId: employee.userId,
+    entity: "leaves",
+    entityId: row.id,
+    action: "request",
+    diff: { startDate, endDate, days, paid: row.paid },
+  });
+
+  revalidatePath("/employee/cuti");
+  revalidatePath("/admin/cuti");
+  ok(path, `Pengajuan cuti ${days} hari terkirim, menunggu persetujuan admin.`);
+}
+
+export async function cancelLeaveAction(formData: FormData) {
+  const { org, employee } = await requireEmployee();
+  const leaveId = str(formData, "leaveId");
+
+  const [row] = await db
+    .select()
+    .from(leaves)
+    .where(
+      and(
+        eq(leaves.id, leaveId),
+        eq(leaves.employeeId, employee.id),
+        eq(leaves.orgId, org.id),
+      ),
+    )
+    .limit(1);
+
+  if (!row) fail("/employee/cuti", "Pengajuan cuti tidak ditemukan.");
+  if (row.status !== "pending") {
+    fail("/employee/cuti", "Hanya pengajuan yang masih menunggu yang bisa dibatalkan.");
+  }
+
+  await db
+    .update(leaves)
+    .set({ status: "void", rejectReason: "Dibatalkan karyawan" })
+    .where(eq(leaves.id, row.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: employee.userId,
+    entity: "leaves",
+    entityId: row.id,
+    action: "cancel",
+    diff: { startDate: row.startDate, endDate: row.endDate },
+  });
+
+  revalidatePath("/employee/cuti");
+  revalidatePath("/admin/cuti");
+  ok("/employee/cuti", "Pengajuan cuti dibatalkan.");
 }

@@ -6,6 +6,7 @@ import {
   cashAdvances,
   contracts,
   employees,
+  leaves,
   payRateHistory,
   payPeriods,
   payslips,
@@ -15,6 +16,8 @@ import {
 import { requireAdmin } from "@/lib/session";
 import {
   createAdvanceAction,
+  createLeaveAction,
+  decideLeaveAction,
   resetPinAction,
   updateEmployeeAction,
 } from "../../actions";
@@ -47,6 +50,7 @@ import {
   toNumber,
 } from "@/lib/format";
 import { workedMinutes } from "@/lib/payroll";
+import { LEAVE_KIND_OPTIONS, leaveKindLabel, leaveStatusTone } from "@/lib/leave";
 
 const PAY_TYPE_OPTIONS = [
   { value: "hourly", label: "Per jam" },
@@ -61,6 +65,7 @@ const TABS = [
   { key: "kasbon", label: "Kasbon" },
   { key: "kontrak", label: "Kontrak" },
   { key: "absensi", label: "Absensi" },
+  { key: "cuti", label: "Cuti" },
   { key: "slip", label: "Slip gaji" },
 ] as const;
 
@@ -159,6 +164,16 @@ export default async function EmployeeDetailPage({
           .where(eq(payslips.employeeId, id))
           .orderBy(desc(payPeriods.periodStart))
           .limit(12)
+      : [];
+
+  const leaveRows =
+    tab === "cuti"
+      ? await db
+          .select()
+          .from(leaves)
+          .where(and(eq(leaves.orgId, org.id), eq(leaves.employeeId, id)))
+          .orderBy(desc(leaves.startDate))
+          .limit(20)
       : [];
 
   const outstanding = advanceRows
@@ -538,6 +553,133 @@ export default async function EmployeeDetailPage({
                   ))}
                 </TableBody>
               </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "cuti" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Cuti</CardTitle>
+            <CardDescription>
+              {employee.payType === "monthly"
+                ? "Cuti berbayar yang disetujui tetap dihitung sebagai hari kerja di payroll."
+                : "Cuti hanya berlaku untuk karyawan bulanan."}
+            </CardDescription>
+            <CardAction>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/admin/cuti">Kelola cuti</Link>
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {employee.payType !== "monthly" ? (
+              <EmptyState
+                title="Cuti tidak berlaku untuk tipe gaji ini"
+                hint={`Tipe ${PAY_TYPE_LABEL[employee.payType] ?? employee.payType} sudah dibayar dari kehadiran/tugas.`}
+              />
+            ) : (
+              <>
+                {leaveRows.length === 0 ? (
+                  <EmptyState
+                    title="Belum ada cuti"
+                    hint="Catat cuti lewat form di bawah, atau tunggu pengajuan dari karyawan."
+                  />
+                ) : (
+                  <ul className="flex flex-col gap-3">
+                    {leaveRows.map((row) => (
+                      <li key={row.id} className="rounded-lg border p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">
+                              {leaveKindLabel(row.kind)} · {row.days} hari
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDateID(row.startDate)} – {formatDateID(row.endDate)} ·{" "}
+                              {row.paid ? "berbayar" : "tanpa upah"}
+                            </p>
+                            {row.note ? (
+                              <p className="mt-1 text-xs text-muted-foreground">{row.note}</p>
+                            ) : null}
+                            {row.status === "rejected" && row.rejectReason ? (
+                              <p className="mt-1 text-xs text-destructive">
+                                Alasan ditolak: {row.rejectReason}
+                              </p>
+                            ) : null}
+                          </div>
+                          <StatusBadge tone={leaveStatusTone(row.status)}>
+                            {statusLabel(row.status)}
+                          </StatusBadge>
+                        </div>
+
+                        {row.status === "pending" ? (
+                          <div className="mt-3 flex flex-wrap items-end gap-2">
+                            <form action={decideLeaveAction}>
+                              <input type="hidden" name="leaveId" value={row.id} />
+                              <input type="hidden" name="decision" value="approved" />
+                              <input type="hidden" name="backTo" value={tabUrl("cuti")} />
+                              <Button type="submit" size="sm">
+                                Setujui
+                              </Button>
+                            </form>
+                            <form
+                              action={decideLeaveAction}
+                              className="flex flex-1 items-end gap-2"
+                            >
+                              <input type="hidden" name="leaveId" value={row.id} />
+                              <input type="hidden" name="decision" value="rejected" />
+                              <input type="hidden" name="backTo" value={tabUrl("cuti")} />
+                              <FormField label="Alasan tolak" className="min-w-36 flex-1">
+                                <Input name="rejectReason" placeholder="opsional" />
+                              </FormField>
+                              <Button type="submit" size="sm" variant="outline">
+                                Tolak
+                              </Button>
+                            </form>
+                          </div>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <Separator />
+
+                <form action={createLeaveAction} className="flex flex-col gap-3">
+                  <input type="hidden" name="employeeId" value={employee.id} />
+                  <input type="hidden" name="backTo" value={tabUrl("cuti")} />
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <FormField label="Jenis">
+                      <SelectInput name="kind" defaultValue="cuti">
+                        {LEAVE_KIND_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </SelectInput>
+                    </FormField>
+                    <FormField label="Upah">
+                      <SelectInput name="paid" defaultValue="1">
+                        <option value="1">Berbayar (gaji tetap)</option>
+                        <option value="0">Tanpa upah</option>
+                      </SelectInput>
+                    </FormField>
+                    <FormField label="Tanggal mulai">
+                      <Input type="date" name="startDate" defaultValue={today} required />
+                    </FormField>
+                    <FormField label="Tanggal selesai" hint="Isi sama bila hanya satu hari">
+                      <Input type="date" name="endDate" defaultValue={today} />
+                    </FormField>
+                  </div>
+                  <FormField label="Catatan" hint="Opsional">
+                    <Input name="note" placeholder="cuti tahunan" />
+                  </FormField>
+                  <div>
+                    <Button type="submit">Catat cuti</Button>
+                  </div>
+                </form>
+              </>
             )}
           </CardContent>
         </Card>

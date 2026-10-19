@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { cashAdvancePlans, cashAdvances, employees, timeEntries, workTasks } from "@/db/schema";
+import { cashAdvancePlans, cashAdvances, employees, leaves, timeEntries, workTasks } from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
 import { advanceLabel, isAdvanceEligible, resolveAdvanceDeduction } from "@/lib/kasbon";
 import type { Period } from "@/lib/period";
@@ -92,6 +92,20 @@ export async function previewPayroll(
       ),
     );
 
+  // Cuti approved yang menyentuh periode ini; hanya dipakai untuk karyawan bulanan.
+  const leaveRows = await db
+    .select()
+    .from(leaves)
+    .where(
+      and(
+        eq(leaves.orgId, orgId),
+        eq(leaves.status, "approved"),
+        lte(leaves.startDate, period.end),
+        gte(leaves.endDate, period.start),
+        inArray(leaves.employeeId, employeeIds),
+      ),
+    );
+
   // Keputusan karyawan/admin khusus untuk periode ini (potong sebagian / tunda).
   const plans = await db
     .select({
@@ -164,6 +178,16 @@ export async function previewPayroll(
         deferred: item.resolution.deferred,
         label: item.label,
       })),
+      leaves: leaveRows
+        .filter((leave) => leave.employeeId === employee.id)
+        .map((leave) => ({
+          id: leave.id,
+          kind: leave.kind,
+          startDate: leave.startDate,
+          endDate: leave.endDate,
+          paid: leave.paid,
+          status: leave.status,
+        })),
     });
 
     return { employee, computation, advanceSummary };

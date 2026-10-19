@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   BanknoteIcon,
   CalendarClockIcon,
+  CalendarOffIcon,
   ClipboardCheckIcon,
   FileTextIcon,
   HistoryIcon,
@@ -37,6 +38,7 @@ const adminItems: NavItem[] = [
   { href: "/admin/karyawan", label: "Karyawan", icon: UsersIcon },
   { href: "/admin/kontrak", label: "Kontrak", icon: FileTextIcon },
   { href: "/admin/absensi", label: "Absensi", icon: CalendarClockIcon },
+  { href: "/admin/cuti", label: "Cuti", icon: CalendarOffIcon },
   { href: "/admin/tugas", label: "Tugas", icon: ClipboardCheckIcon },
   { href: "/admin/kasbon", label: "Kasbon", icon: WalletIcon },
   { href: "/admin/payroll", label: "Payroll", icon: BanknoteIcon },
@@ -56,6 +58,7 @@ const employeeItems: NavItem[] = [
   { href: "/employee", label: "Absen", icon: CalendarClockIcon },
   { href: "/employee/absensi", label: "Riwayat", icon: HistoryIcon },
   { href: "/employee/tugas", label: "Tugas", icon: ClipboardCheckIcon },
+  { href: "/employee/cuti", label: "Cuti", icon: CalendarOffIcon },
   { href: "/employee/kasbon", label: "Kasbon", icon: WalletIcon },
   { href: "/employee/slip", label: "Slip", icon: ReceiptTextIcon },
 ];

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -10,6 +10,7 @@ import {
   cashAdvances,
   contracts,
   employees,
+  leaves,
   memberships,
   organizations,
   payPeriods,
@@ -21,6 +22,7 @@ import {
 } from "@/db/schema";
 import { AccountError, createCredentialUser, setPin } from "@/lib/accounts";
 import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
+import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { audit } from "@/lib/audit";
 import { previewPayroll, type PayrollRow } from "@/lib/payroll-run";
 import { ORG_COOKIE, requireAdmin } from "@/lib/session";
@@ -862,6 +864,151 @@ async function revertPayrollSettlements(tx: Tx, periodId: string) {
       .where(eq(cashAdvances.id, repayment.cashAdvanceId));
     await tx.delete(cashAdvanceTxns).where(eq(cashAdvanceTxns.id, repayment.id));
   }
+}
+
+/* -------------------------------- cuti -------------------------------- */
+
+/** Tanggal `YYYY-MM-DD` yang benar-benar ada (menolak 2026-02-31). */
+function dateField(fd: FormData, key: string): string | null {
+  const value = str(fd, key);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10) === value ? value : null;
+}
+
+/**
+ * Admin mencatat cuti langsung (langsung disetujui). Dipakai dari halaman Cuti
+ * maupun tab Cuti di detail karyawan; `backTo` menentukan arah redirect.
+ */
+export async function createLeaveAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const backTo = adminPath(formData, "backTo", "/admin/cuti");
+  const employeeId = str(formData, "employeeId");
+
+  const [employee] = await db
+    .select()
+    .from(employees)
+    .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)))
+    .limit(1);
+
+  if (!employee) fail(backTo, "Karyawan tidak ditemukan.");
+  if (employee.payType !== "monthly") {
+    fail(backTo, "Cuti hanya berlaku untuk karyawan bulanan.");
+  }
+
+  const startDate = dateField(formData, "startDate");
+  const endDate = dateField(formData, "endDate") ?? startDate;
+  if (!startDate) fail(backTo, "Tanggal mulai cuti tidak valid.");
+  if (!endDate || endDate < startDate) {
+    fail(backTo, "Tanggal selesai tidak boleh sebelum tanggal mulai.");
+  }
+
+  const days = leaveWorkDays(startDate, endDate);
+  if (days === 0) fail(backTo, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
+
+  const [overlap] = await db
+    .select({ id: leaves.id })
+    .from(leaves)
+    .where(
+      and(
+        eq(leaves.employeeId, employee.id),
+        inArray(leaves.status, ["pending", "approved"]),
+        lte(leaves.startDate, endDate),
+        gte(leaves.endDate, startDate),
+      ),
+    )
+    .limit(1);
+
+  if (overlap) fail(backTo, "Sudah ada cuti pending/disetujui di rentang tanggal itu.");
+
+  const [row] = await db
+    .insert(leaves)
+    .values({
+      orgId: org.id,
+      employeeId: employee.id,
+      kind: normalizeLeaveKind(str(formData, "kind")),
+      startDate,
+      endDate,
+      days,
+      paid: str(formData, "paid") !== "0",
+      status: "approved",
+      note: str(formData, "note") || null,
+      requestedBy: user.id,
+      approvedBy: user.id,
+      approvedAt: new Date(),
+    })
+    .returning();
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "leaves",
+    entityId: row.id,
+    action: "create",
+    diff: { employeeId: employee.id, startDate, endDate, days, paid: row.paid },
+  });
+
+  revalidatePath("/admin/cuti");
+  revalidatePath(`/admin/karyawan/${employee.id}`);
+  revalidatePath("/employee/cuti");
+  ok(backTo, `Cuti ${days} hari dicatat untuk ${employee.fullName}.`);
+}
+
+/** Setujui / tolak pengajuan cuti karyawan. */
+export async function decideLeaveAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const backTo = adminPath(formData, "backTo", "/admin/cuti");
+  const leaveId = str(formData, "leaveId");
+  const decision = str(formData, "decision");
+
+  if (decision !== "approved" && decision !== "rejected") {
+    fail(backTo, "Keputusan cuti tidak dikenal.");
+  }
+
+  const [row] = await db
+    .select({ leave: leaves, payType: employees.payType, fullName: employees.fullName })
+    .from(leaves)
+    .innerJoin(employees, eq(leaves.employeeId, employees.id))
+    .where(and(eq(leaves.id, leaveId), eq(leaves.orgId, org.id)))
+    .limit(1);
+
+  if (!row) fail(backTo, "Pengajuan cuti tidak ditemukan.");
+  if (row.leave.status !== "pending") {
+    fail(backTo, "Pengajuan ini sudah diputuskan sebelumnya.");
+  }
+  if (decision === "approved" && row.payType !== "monthly") {
+    fail(backTo, "Cuti hanya bisa disetujui untuk karyawan bulanan.");
+  }
+
+  await db
+    .update(leaves)
+    .set({
+      status: decision,
+      approvedBy: user.id,
+      approvedAt: new Date(),
+      rejectReason: decision === "rejected" ? str(formData, "rejectReason") || null : null,
+    })
+    .where(eq(leaves.id, row.leave.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "leaves",
+    entityId: row.leave.id,
+    action: decision,
+    diff: { startDate: row.leave.startDate, endDate: row.leave.endDate },
+  });
+
+  revalidatePath("/admin/cuti");
+  revalidatePath(`/admin/karyawan/${row.leave.employeeId}`);
+  revalidatePath("/employee/cuti");
+  ok(
+    backTo,
+    decision === "approved"
+      ? `Cuti ${row.fullName} disetujui dan akan dihitung di payroll bulanan.`
+      : `Pengajuan cuti ${row.fullName} ditolak.`,
+  );
 }
 
 export async function createPayrollRunAction(formData: FormData) {

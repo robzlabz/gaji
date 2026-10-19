@@ -64,17 +64,25 @@ export function recentPeriods(anchor: string, startDay: number, count = 6): Peri
   return out;
 }
 
-/** Jumlah hari kerja (Senin–Sabtu) dalam periode — fallback prorata. */
-export function countWorkDays(start: string, end: string): number {
+/** Daftar tanggal hari kerja (Senin–Sabtu) dalam rentang inklusif. */
+export function workDatesBetween(start: string, end: string): string[] {
+  const out: string[] = [];
+  if (!start || !end || end < start) return out;
+
   let cursor = new Date(`${start}T00:00:00Z`);
   const stop = new Date(`${end}T00:00:00Z`);
-  let count = 0;
+  if (Number.isNaN(cursor.getTime()) || Number.isNaN(stop.getTime())) return out;
+
   while (cursor <= stop) {
-    const dow = cursor.getUTCDay();
-    if (dow !== 0) count += 1;
+    if (cursor.getUTCDay() !== 0) out.push(cursor.toISOString().slice(0, 10));
     cursor = new Date(cursor.getTime() + 86_400_000);
   }
-  return count;
+  return out;
+}
+
+/** Jumlah hari kerja (Senin–Sabtu) dalam periode — fallback prorata. */
+export function countWorkDays(start: string, end: string): number {
+  return workDatesBetween(start, end).length;
 }
 
 export function isDateInPeriod(date: string, period: Period): boolean {
