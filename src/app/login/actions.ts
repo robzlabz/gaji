@@ -2,24 +2,93 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { employees, memberships } from "@/db/schema";
+import { employees, memberships, user } from "@/db/schema";
 import { getSession, isAdminRole } from "@/lib/session";
+import { ROLE_LABEL, isValidPhone, normalizePhone } from "@/lib/format";
 
-/** Tab yang dipilih di halaman masuk. */
-export type LoginMode = "employee" | "owner";
+/** Jenis akun yang dipakai untuk menentukan tujuan setelah PIN benar. */
+export type AccountKind = "owner" | "employee";
 
-export type LoginGate =
-  | { ok: true; href: string }
+export type LoginAccount =
+  | {
+      ok: true;
+      /** Nomor ternormalisasi `<kode negara><nomor>` — dipakai lagi di langkah PIN. */
+      phone: string;
+      kind: AccountKind;
+      /** Label yang ditampilkan di langkah PIN: "Owner", "Admin", atau "Karyawan". */
+      label: string;
+      name: string;
+    }
   | { ok: false; message: string };
 
+/** Pesan seragam untuk nomor yang tidak punya akun — jangan bocorkan detail lain. */
+const NOT_REGISTERED =
+  "Nomor HP ini tidak memiliki akun atau belum terdaftar. Pastikan nomornya benar, atau minta admin perusahaan mendaftarkanmu.";
+
 /**
- * Setelah kredensial valid, tentukan apakah role akun cocok dengan tab yang dipilih.
+ * Langkah 1 halaman masuk: cek apakah nomor HP punya akun, tanpa meminta PIN.
  *
- * Login-nya tetap satu pintu (HP + PIN), tapi tab menentukan ekspektasi role:
- * tab Karyawan hanya untuk akun staff, tab Owner hanya untuk owner/admin.
- * Dipanggil dari klien agar pesan salah-tab bisa ditampilkan sebelum redirect.
+ * Nomor yang tidak terdaftar berhenti di sini dengan pesan "tidak memiliki akun
+ * atau belum terdaftar". Nomor yang terdaftar mengembalikan label role (Owner /
+ * Admin / Karyawan) supaya halaman PIN bisa menampilkan badge yang sesuai.
  */
-export async function resolveLoginGate(mode: LoginMode): Promise<LoginGate> {
+export async function findLoginAccount(rawPhone: string, dialCode = "62"): Promise<LoginAccount> {
+  const phone = normalizePhone(rawPhone, dialCode);
+  if (!isValidPhone(phone, dialCode)) {
+    return { ok: false, message: "Nomor HP tidak valid. Contoh: 08123456789" };
+  }
+
+  const [account] = await db
+    .select({ id: user.id, name: user.name })
+    .from(user)
+    .where(eq(user.phoneNumber, phone))
+    .limit(1);
+
+  if (!account) return { ok: false, message: NOT_REGISTERED };
+
+  const roleRows = await db
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(eq(memberships.userId, account.id));
+
+  const [employeeRow] = await db
+    .select({ id: employees.id })
+    .from(employees)
+    .where(eq(employees.userId, account.id))
+    .limit(1);
+
+  const adminRole = roleRows.find((row) => isAdminRole(row.role))?.role;
+  const staffRole = roleRows.find((row) => !isAdminRole(row.role))?.role;
+
+  if (!adminRole && !staffRole && !employeeRow) {
+    return {
+      ok: false,
+      message:
+        "Nomor HP ini belum terhubung ke perusahaan mana pun. Minta admin menambahkanmu sebagai karyawan.",
+    };
+  }
+
+  // Owner/admin menang atas data karyawan: owner yang ikut absen tetap masuk dashboard admin.
+  const role = adminRole ?? staffRole ?? "employee";
+
+  return {
+    ok: true,
+    phone,
+    kind: isAdminRole(role) ? "owner" : "employee",
+    label: ROLE_LABEL[role] ?? "Karyawan",
+    name: account.name,
+  };
+}
+
+export type LoginGate = { ok: true; href: string } | { ok: false; message: string };
+
+/**
+ * Setelah PIN benar, tentukan dashboard tujuan dari role akun yang sebenarnya.
+ *
+ * Dulu tujuan ditentukan tab Karyawan/Owner yang dipilih user; sekarang nomor HP
+ * sudah menentukan role-nya sendiri, jadi tidak ada lagi kemungkinan salah tab.
+ */
+export async function resolveLoginGate(): Promise<LoginGate> {
   const session = await getSession();
   if (!session?.user) {
     return { ok: false, message: "Sesi tidak ditemukan. Coba masuk lagi." };
@@ -37,32 +106,5 @@ export async function resolveLoginGate(mode: LoginMode): Promise<LoginGate> {
     };
   }
 
-  const adminRows = rows.filter((row) => isAdminRole(row.role));
-  const staffRows = rows.filter((row) => !isAdminRole(row.role));
-
-  if (mode === "owner") {
-    if (adminRows.length === 0) {
-      return {
-        ok: false,
-        message: "Nomor HP ini terdaftar sebagai karyawan. Masuk lewat tab Karyawan.",
-      };
-    }
-    return { ok: true, href: "/admin" };
-  }
-
-  // Owner yang juga punya data karyawan (mis. ikut absen) tetap boleh masuk tab ini.
-  const [employeeRow] = await db
-    .select({ id: employees.id })
-    .from(employees)
-    .where(eq(employees.userId, session.user.id))
-    .limit(1);
-
-  if (staffRows.length === 0 && !employeeRow) {
-    return {
-      ok: false,
-      message: "Nomor HP ini terdaftar sebagai owner/admin. Masuk lewat tab Owner.",
-    };
-  }
-
-  return { ok: true, href: "/employee" };
+  return { ok: true, href: rows.some((row) => isAdminRole(row.role)) ? "/admin" : "/employee" };
 }

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { LoginForm } from "./login-form";
+import { PhoneForm } from "./phone-form";
+import { LoginSteps } from "./login-steps";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata = { title: "Masuk — Gaji" };
@@ -15,12 +16,12 @@ const DEMO_ACCOUNTS = [
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; tab?: string }>;
+  searchParams: Promise<{ next?: string }>;
 }) {
   const session = await getSession();
   if (session?.user) redirect("/");
 
-  const { next, tab } = await searchParams;
+  const { next } = await searchParams;
   const isDev = process.env.NODE_ENV !== "production";
 
   return (
@@ -31,18 +32,23 @@ export default async function LoginPage({
             G
           </span>
           <h1 className="text-xl font-semibold tracking-tight">Masuk ke Gaji</h1>
-          <p className="text-sm text-muted-foreground">Gunakan nomor HP dan PIN 6 digit kamu.</p>
+          <p className="text-sm text-muted-foreground">
+            Masukkan nomor HP dulu. PIN diminta di langkah berikutnya.
+          </p>
         </div>
+
+        <LoginSteps active={1} />
 
         <Card>
           <CardHeader>
-            <CardTitle>Masuk sebagai</CardTitle>
+            <CardTitle>Nomor HP</CardTitle>
             <CardDescription>
-              Pilih Karyawan atau Owner. Akun karyawan dibuat oleh admin perusahaan.
+              Pakai nomor yang terdaftar. Owner dan karyawan masuk lewat pintu yang sama — kami
+              yang mengenali akunnya.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <LoginForm next={next} initialMode={tab === "owner" ? "owner" : "employee"} />
+            <PhoneForm next={next} />
           </CardContent>
         </Card>
 
