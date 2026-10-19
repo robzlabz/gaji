@@ -8,10 +8,25 @@ export const LEAVE_KIND_LABEL: Record<string, string> = {
 };
 
 export const LEAVE_KIND_OPTIONS = [
-  { value: "cuti", label: "Cuti" },
-  { value: "sakit", label: "Sakit" },
-  { value: "izin", label: "Izin" },
+  { value: "cuti", label: "Cuti", hint: "Tahunan / pribadi" },
+  { value: "sakit", label: "Sakit", hint: "Sakit & pemulihan" },
+  { value: "izin", label: "Izin", hint: "Urusan mendadak" },
 ];
+
+/** Pilihan upah cuti. Nilai "1"/"0" supaya cocok dengan radio button di form. */
+export const LEAVE_PAID_OPTIONS = [
+  { value: "1", label: "Berbayar", hint: "Gaji tetap — hari cuti tetap dibayar." },
+  { value: "0", label: "Tanpa upah", hint: "Gaji bulan ini diprorata turun." },
+];
+
+/**
+ * Penjelasan lengkap untuk ikon (i) di bagian upah.
+ * Dipakai tooltip supaya admin paham efeknya ke payroll sebelum menyimpan.
+ */
+export const LEAVE_PAID_HELP =
+  "Berbayar (gaji tetap): hari cuti dihitung sebagai hari kerja, jadi gaji bulanan tidak berkurang. " +
+  "Tanpa upah: hari cuti tidak dihitung, gaji bulan ini diprorata turun sebesar hari kerja yang hilang. " +
+  "Cuti yang masih menunggu tidak memengaruhi payroll sampai disetujui.";
 
 /** Nilai `kind` yang diterima server action; selain ini jatuh ke "cuti". */
 export function normalizeLeaveKind(raw: string): string {
@@ -83,4 +98,9 @@ export function leaveDatesInPeriod(
 /** Rentang tampilan: satu hari cukup satu tanggal, selain itu "mulai – selesai". */
 export function leaveRangeLabel(startDate: string, endDate: string): string {
   return startDate === endDate ? startDate : `${startDate} – ${endDate}`;
+}
+
+/** Label upah singkat untuk daftar & ringkasan. */
+export function leavePaidLabel(paid: boolean): string {
+  return paid ? "berbayar" : "tanpa upah";
 }

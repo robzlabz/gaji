@@ -11,12 +11,19 @@ import { toast } from "sonner";
  */
 export function Flash({ ok, err }: { ok?: string; err?: string }) {
   const router = useRouter();
-  const shown = useRef(false);
+  const shown = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!ok && !err) return;
-    if (shown.current) return;
-    shown.current = true;
+    if (!ok && !err) {
+      // Query dibersihkan setelah tampil, jadi penanda ikut direset supaya aksi
+      // berikutnya di halaman yang sama tetap memunculkan toast (mis. hapus cuti).
+      shown.current = null;
+      return;
+    }
+
+    const key = `${ok ?? ""}|${err ?? ""}`;
+    if (shown.current === key) return;
+    shown.current = key;
 
     if (err) {
       toast.error("Gagal", { description: err, duration: 8000 });
