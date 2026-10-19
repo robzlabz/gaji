@@ -11,6 +11,7 @@ import {
   cashAdvances,
   contracts,
   employees,
+  leaves,
   memberships,
   organizations,
   timeEntries,
@@ -18,6 +19,7 @@ import {
   workTasks,
 } from "./schema";
 import { auth } from "@/lib/auth";
+import { leaveWorkDays } from "@/lib/leave";
 
 function iso(offsetDays: number): string {
   const d = new Date();
@@ -283,6 +285,40 @@ async function main() {
       unitRate: "20000",
       status: "open",
       workDate: taskDays[3],
+    },
+  ]);
+
+  /* ----------------------------- cuti ------------------------------- */
+  // Cuti hanya untuk karyawan bulanan: Andi (monthly). Satu disetujui (berbayar),
+  // satu menunggu approval supaya halaman admin punya contoh keputusan.
+  const leaveApprovedStart = iso(-3);
+  const leaveApprovedEnd = iso(-2);
+  const leavePendingStart = iso(3);
+  const leavePendingEnd = iso(4);
+
+  await db.insert(leaves).values([
+    {
+      orgId: kopi.id,
+      employeeId: created["Andi Pratama"].employeeId,
+      kind: "cuti",
+      startDate: leaveApprovedStart,
+      endDate: leaveApprovedEnd,
+      days: leaveWorkDays(leaveApprovedStart, leaveApprovedEnd),
+      paid: true,
+      status: "approved",
+      note: "Acara keluarga di luar kota",
+      approvedAt: new Date(),
+    },
+    {
+      orgId: kopi.id,
+      employeeId: created["Andi Pratama"].employeeId,
+      kind: "izin",
+      startDate: leavePendingStart,
+      endDate: leavePendingEnd,
+      days: leaveWorkDays(leavePendingStart, leavePendingEnd),
+      paid: true,
+      status: "pending",
+      note: "Urus dokumen kendaraan",
     },
   ]);
 

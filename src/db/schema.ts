@@ -367,6 +367,48 @@ export const cashAdvancePlans = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Cuti (hanya karyawan bulanan)                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Pengajuan cuti. Hanya berlaku untuk karyawan `pay_type = monthly`: tipe lain
+ * sudah dibayar berdasarkan kehadiran/tugas sehingga cuti tidak punya arti.
+ * Cuti berbayar yang approved dihitung sebagai hari kerja saat prorata gaji bulanan.
+ */
+export const leaves = pgTable(
+  "leaves",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    /** "cuti" | "sakit" | "izin" */
+    kind: text("kind").notNull().default("cuti"),
+    startDate: date("start_date").notNull(),
+    endDate: date("end_date").notNull(),
+    /** Hari kerja (Senin–Sabtu) pada rentang tanggal, dihitung saat pengajuan. */
+    days: integer("days").notNull(),
+    /** Berbayar = dihitung sebagai hari kerja di payroll; tanpa upah = prorata turun. */
+    paid: boolean("paid").notNull().default(true),
+    /** "pending" | "approved" | "rejected" | "void" (dibatalkan karyawan) */
+    status: text("status").notNull().default("pending"),
+    note: text("note"),
+    requestedBy: uuid("requested_by").references(() => user.id, { onDelete: "set null" }),
+    approvedBy: uuid("approved_by").references(() => user.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    rejectReason: text("reject_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("leaves_org_date_idx").on(t.orgId, t.startDate),
+    index("leaves_emp_date_idx").on(t.employeeId, t.startDate),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Payroll                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -470,6 +512,7 @@ export const employeesRelations = relations(employees, ({ one, many }) => ({
   user: one(user, { fields: [employees.userId], references: [user.id] }),
   contracts: many(contracts),
   timeEntries: many(timeEntries),
+  leaves: many(leaves),
 }));
 
 export const payslipRelations = relations(payslips, ({ one, many }) => ({
@@ -479,4 +522,6 @@ export const payslipRelations = relations(payslips, ({ one, many }) => ({
 }));
 
 export type PayType = "hourly" | "daily" | "monthly" | "per_task";
+export type LeaveKind = "cuti" | "sakit" | "izin";
+export type LeaveStatus = "pending" | "approved" | "rejected" | "void";
 export type Role = "owner" | "admin" | "employee";

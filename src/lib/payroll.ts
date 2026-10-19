@@ -1,4 +1,4 @@
-import { countWorkDays, type Period } from "./period";
+import { countWorkDays, workDatesBetween, type Period } from "./period";
 import { toNumber } from "./format";
 
 export type PayLineKind = "regular" | "overtime" | "task" | "kasbon" | "other";
@@ -53,6 +53,15 @@ export type AdvanceInput = {
   label?: string;
 };
 
+export type LeaveInput = {
+  id: string;
+  kind: string;
+  startDate: string;
+  endDate: string;
+  paid: boolean;
+  status: string;
+};
+
 export type ComputeInput = {
   payType: string;
   payRate: string | number;
@@ -61,6 +70,8 @@ export type ComputeInput = {
   timeEntries: TimeEntryInput[];
   tasks: TaskInput[];
   advances: AdvanceInput[];
+  /** Cuti karyawan (hanya dipakai untuk pay_type monthly). */
+  leaves?: LeaveInput[];
   overtimeMultiplier?: number;
 };
 
@@ -143,32 +154,68 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     const effectiveStart =
       input.joinedAt && input.joinedAt > input.period.start ? input.joinedAt : input.period.start;
     const denominator = Math.max(1, countWorkDays(effectiveStart, input.period.end));
-    const attended = new Set(
+    const attendedDates = new Set(
       input.timeEntries
         .filter((e) => e.clockOutAt && e.workDate >= effectiveStart)
         .map((e) => e.workDate),
-    ).size;
+    );
+    const attended = attendedDates.size;
 
-    const numerator = attended === 0 ? denominator : Math.min(attended, denominator);
+    // Cuti approved hanya menambah hari yang dibayar bila memang berbayar, dan hari
+    // yang sudah ada absensinya tidak dihitung dua kali.
+    const paidLeaveDates = new Set<string>();
+    const unpaidLeaveDates = new Set<string>();
+    for (const leave of input.leaves ?? []) {
+      if (leave.status !== "approved") continue;
+      const bucket = leave.paid ? paidLeaveDates : unpaidLeaveDates;
+      for (const day of workDatesBetween(leave.startDate, leave.endDate)) {
+        if (day < effectiveStart || day > input.period.end) continue;
+        if (attendedDates.has(day)) continue;
+        bucket.add(day);
+      }
+    }
+
+    const paidLeaveDays = paidLeaveDates.size;
+    const unpaidLeaveDays = unpaidLeaveDates.size;
+    // Tanpa absensi sama sekali karyawan bulanan tetap dibayar penuh (tidak wajib
+    // clock-in), jadi cuti tidak boleh menurunkan gaji pada kondisi itu.
+    const numerator =
+      attended === 0 ? denominator : Math.min(attended + paidLeaveDays, denominator);
     const amount = Math.round((numerator / denominator) * rate);
+
+    const baseLabel =
+      attended === 0
+        ? "Gaji bulanan"
+        : numerator === denominator
+          ? "Gaji bulanan (penuh)"
+          : `Gaji bulanan (prorata ${numerator}/${denominator} hari)`;
 
     lines.push({
       kind: "regular",
-      label:
-        attended === 0
-          ? "Gaji bulanan"
-          : numerator === denominator
-            ? "Gaji bulanan (penuh)"
-            : `Gaji bulanan (prorata ${numerator}/${denominator} hari)`,
+      label: paidLeaveDays > 0 ? `${baseLabel} · ${paidLeaveDays} hari cuti` : baseLabel,
       qty: round2(numerator),
       unit: "hari",
       unitRate: Math.round(rate / denominator),
       amount,
+      meta: {
+        workDays: denominator,
+        attendedDays: attended,
+        paidLeaveDays,
+        unpaidLeaveDays,
+      },
     });
 
     if (attended > 0 && numerator < denominator) {
       warnings.push(
-        `Kehadiran ${numerator} dari ${denominator} hari kerja — gaji diprorata otomatis.`,
+        paidLeaveDays > 0
+          ? `Hadir ${attended} hari + cuti berbayar ${paidLeaveDays} hari dari ${denominator} hari kerja — gaji diprorata otomatis.`
+          : `Kehadiran ${numerator} dari ${denominator} hari kerja — gaji diprorata otomatis.`,
+      );
+    }
+
+    if (unpaidLeaveDays > 0) {
+      warnings.push(
+        `${unpaidLeaveDays} hari cuti tanpa upah tidak dihitung sebagai hari kerja.`,
       );
     }
   }
