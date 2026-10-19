@@ -20,7 +20,7 @@ dilaporkan AI identik dengan dashboard. Pengamanannya:
 ```bash
 cd web
 npm run mcp          # server stdio untuk client MCP
-npm run mcp:smoke    # uji cepat: nyalakan server, panggil 14 tool, cetak hasilnya
+npm run mcp:smoke    # uji cepat: nyalakan server, panggil semua tool, cetak hasilnya
 npm run mcp:smoke -- kopi-senja   # opsional: pilih tenant
 ```
 
@@ -33,14 +33,16 @@ Env:
 
 Kalau hanya ada satu tenant, parameter `org` di semua tool boleh dikosongkan.
 
-## Daftar tool (16)
+## Daftar tool (19)
 
 | Tool | Isi |
 | --- | --- |
 | `gaji_list_orgs` | daftar tenant + jumlah karyawan aktif (untuk tahu slug org) |
+| `gaji_org_settings` | pengaturan tenant (zona waktu, awal periode, hari kerja/bulan, pengali lembur, alert kontrak, geofence) + akses: member per role dan karyawan yang belum punya akun login |
 | `gaji_overview` | snapshot dashboard: periode berjalan, headcount per tipe gaji, absensi hari ini, antrean approval, kontrak hampir habis, kasbon, total payroll |
 | `gaji_list_employees` | cari/daftar karyawan: tipe gaji, tarif, status, saldo kasbon, sudah punya akun login atau belum |
 | `gaji_employee_profile` | satu karyawan lengkap: riwayat tarif, kontrak, kasbon, absensi 30 hari, cuti, tugas, slip terakhir |
+| `gaji_contracts` | semua kontrak: jenis (PKWT/PKWTT/percobaan), periode, tarif di kontrak, status (active/renewed/terminated), sisa hari, rantai perpanjangan |
 | `gaji_contracts_expiring` | kontrak aktif yang berakhir dalam N hari (default `contract_alert_days` org) atau sudah lewat |
 | `gaji_attendance_report` | rekap absensi per karyawan dalam rentang tanggal (default periode berjalan): entri, jam kerja, lembur, belum clock-out, di luar geofence |
 | `gaji_attendance_live` | real-time: siapa sedang bekerja, siapa selesai, siapa belum clock-in, entri menggantung dari hari sebelumnya |
@@ -50,6 +52,7 @@ Kalau hanya ada satu tenant, parameter `org` di semua tool boleh dikosongkan.
 | `gaji_payslips` | slip satu periode; bila `employee` diisi, tampilkan rincian item slip |
 | `gaji_payroll_preview` | simulasi payroll periode dari data approved (tidak menyimpan apa pun) + sisa data yang belum di-approve |
 | `gaji_kasbon` | kasbon berjalan: pokok, sisa, cicilan, dan potongan periode ini (mengikuti `cash_advance_plans`) |
+| `gaji_kasbon_txns` | buku kasbon: kapan dicairkan (`disburse`) dan kapan dipotong slip (`repay`), plus slip mana yang memotong |
 | `gaji_tasks` | tugas borongan: status, qty, nilai (qty × tarif) |
 | `gaji_audit_log` | jejak perubahan terakhir: siapa mengubah apa (approve absensi, ubah tarif, hapus data, …) |
 | `gaji_query` | SELECT bebas untuk pertanyaan yang tidak tercakup tool lain |
@@ -79,9 +82,10 @@ nanobot (`~/.nanobot/config.json`, bagian `mcp_servers`) memakai bentuk yang sam
 
 ## Uji
 
-`npm run mcp:smoke` menyalakan server lewat stdio, memanggil 14 tool (semua kecuali
-`gaji_employee_profile` dan `gaji_payslips` yang butuh id karyawan), lalu mencetak hasilnya —
-kalau ada yang gagal, exit code 1. Terakhir dijalankan: **14/14 sukses**.
+`npm run mcp:smoke` menyalakan server lewat stdio lalu memanggil **semua** tool (tool yang butuh
+karyawan memakai nama karyawan pertama dari `gaji_list_employees`, jadi tidak ada yang dilewati),
+lalu mencetak hasilnya — kalau ada yang gagal, exit code 1. Terakhir dijalankan: **19/19 sukses**
+(`npx tsx mcp/smoke.ts kopi-senja`, 2026-10-19).
 
 ## Batasan
 

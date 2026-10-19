@@ -13,6 +13,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { sql } from "./core";
 import { registerAttendanceTools } from "./tools/attendance";
+import { registerContractTools } from "./tools/contracts";
 import { registerOpsTools } from "./tools/ops";
 import { registerOverviewTool } from "./tools/overview";
 import { registerPayrollTools } from "./tools/payroll";
@@ -27,7 +28,7 @@ const INSTRUCTIONS = `Server ini membaca data aplikasi payroll "Gaji" (read-only
 Alur yang disarankan:
 1. gaji_list_orgs bila belum tahu slug org (kalau hanya ada satu tenant, parameter org boleh dikosongkan).
 2. gaji_overview untuk kondisi hari ini: periode berjalan, kehadiran, yang menunggu approval, kontrak hampir habis, kasbon, total payroll.
-3. Telusuri lebih dalam sesuai kebutuhan: gaji_attendance_report / gaji_attendance_live (absensi), gaji_pending_approvals (antrean approval), gaji_payroll_preview (simulasi payroll), gaji_payslips, gaji_kasbon, gaji_leaves, gaji_tasks, gaji_contracts_expiring, gaji_employee_profile, gaji_audit_log.
+3. Telusuri lebih dalam sesuai kebutuhan: gaji_attendance_report / gaji_attendance_live (absensi), gaji_pending_approvals (antrean approval), gaji_payroll_preview (simulasi payroll), gaji_payslips, gaji_kasbon + gaji_kasbon_txns (saldo & buku kasbon), gaji_leaves, gaji_tasks, gaji_contracts / gaji_contracts_expiring, gaji_org_settings (pengaturan + akses), gaji_employee_profile, gaji_audit_log.
 4. gaji_query hanya untuk pertanyaan yang tidak tercakup tool lain (SELECT read-only).
 
 Semua tool hanya membaca; tidak ada aksi yang mengubah data. Semua nominal dalam Rupiah, tanggal dalam zona waktu organisasi.`;
@@ -39,6 +40,7 @@ const server = new McpServer(
 
 registerOverviewTool(server);
 registerPeopleTools(server);
+registerContractTools(server);
 registerAttendanceTools(server);
 registerPayrollTools(server);
 registerOpsTools(server);

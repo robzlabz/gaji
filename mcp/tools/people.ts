@@ -3,12 +3,13 @@
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { addDays, formatDateID, PAY_TYPE_LABEL } from "../../src/lib/format";
+import { addDays, formatDateID, PAY_TYPE_LABEL, ROLE_LABEL } from "../../src/lib/format";
 import {
   num,
   query,
   resolveEmployee,
   resolveOrg,
+  resolvePeriod,
   round,
   todayIn,
   toolResult,
@@ -446,6 +447,145 @@ export function registerPeopleTools(server: McpServer) {
           status: c.status,
           daysLeft: c.days_left === null ? null : Number(c.days_left),
           expired: c.days_left !== null && Number(c.days_left) < 0,
+        })),
+      });
+    },
+  );
+
+  /* ---------------------------------------------------------------- */
+  server.registerTool(
+    "gaji_org_settings",
+    {
+      title: "Pengaturan org & akses",
+      description:
+        "Pengaturan tenant yang memengaruhi hitungan payroll (zona waktu, awal periode gaji, hari kerja/bulan untuk prorata, pengali lembur, ambang alert kontrak, geofence absensi) plus siapa yang punya akses: jumlah member per role dan karyawan aktif yang belum punya akun login.",
+      inputSchema: {
+        ...ORG_ARG,
+        includeMembers: z
+          .boolean()
+          .optional()
+          .describe("Sertakan daftar nama member + nomor telepon (default true)."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ org, includeMembers }) => {
+      const target = await resolveOrg(org);
+      const period = await resolvePeriod(target, {});
+
+      const settings = await query<{
+        id: string;
+        name: string;
+        slug: string;
+        timezone: string;
+        currency: string;
+        pay_period_start_day: number;
+        working_days_per_month: number;
+        overtime_multiplier: string | number;
+        contract_alert_days: number;
+        geofence_lat: number | null;
+        geofence_lng: number | null;
+        geofence_radius_m: number | null;
+        created_at: string;
+      }>(
+        `select id, name, slug, timezone, currency, pay_period_start_day, working_days_per_month,
+                overtime_multiplier, contract_alert_days, geofence_lat, geofence_lng, geofence_radius_m,
+                created_at
+           from organizations where id = $1`,
+        [target.id],
+      );
+      const row = settings[0];
+
+      const roles = await query<{ role: string; members: number }>(
+        `select role, count(*)::int as members from memberships where org_id = $1 group by role order by role`,
+        [target.id],
+      );
+
+      const members =
+        includeMembers === false
+          ? []
+          : await query<{
+              name: string;
+              phone_number: string | null;
+              email: string | null;
+              role: string;
+              since: string;
+            }>(
+              `select u.name, u.phone_number, u.email, m.role, m.created_at as since
+                 from memberships m join "user" u on u.id = m.user_id
+                where m.org_id = $1
+                order by m.role, u.name`,
+              [target.id],
+            );
+
+      const access = await query<{
+        active_employees: number;
+        with_login: number;
+        without_login: number;
+      }>(
+        `select count(*)::int as active_employees,
+                count(*) filter (where user_id is not null)::int as with_login,
+                count(*) filter (where user_id is null)::int as without_login
+           from employees where org_id = $1 and is_active`,
+        [target.id],
+      );
+
+      const missingLogin = await query<{ id: string; code: string | null; full_name: string; pay_type: string }>(
+        `select id, code, full_name, pay_type from employees
+          where org_id = $1 and is_active and user_id is null
+          order by full_name`,
+        [target.id],
+      );
+
+      return toolResult({
+        org: {
+          id: target.id,
+          name: row?.name ?? target.name,
+          slug: target.slug,
+          timezone: row?.timezone ?? target.timezone,
+          currency: row?.currency ?? "IDR",
+          createdAt: row?.created_at ?? null,
+        },
+        payrollSettings: {
+          payPeriodStartDay: row?.pay_period_start_day ?? target.payPeriodStartDay,
+          workingDaysPerMonth: row?.working_days_per_month ?? target.workingDaysPerMonth,
+          overtimeMultiplier: num(row?.overtime_multiplier ?? target.overtimeMultiplier),
+          contractAlertDays: row?.contract_alert_days ?? target.contractAlertDays,
+          currentPeriod: {
+            label: period.label,
+            start: period.period.start,
+            end: period.period.end,
+            status: period.status,
+          },
+        },
+        attendanceGeofence: {
+          enabled: row?.geofence_lat !== null && row?.geofence_lng !== null,
+          lat: row?.geofence_lat ?? null,
+          lng: row?.geofence_lng ?? null,
+          radiusM: row?.geofence_radius_m ?? null,
+        },
+        access: {
+          membersByRole: Object.fromEntries(
+            roles.map((r) => [r.role, Number(r.members)]),
+          ) as Record<string, number>,
+          totalMembers: roles.reduce((sum, r) => sum + Number(r.members), 0),
+          activeEmployees: Number(access[0]?.active_employees ?? 0),
+          employeesWithLogin: Number(access[0]?.with_login ?? 0),
+          employeesWithoutLogin: Number(access[0]?.without_login ?? 0),
+          missingLogin: missingLogin.map((e) => ({
+            id: e.id,
+            name: e.full_name,
+            code: e.code,
+            payType: e.pay_type,
+            payTypeLabel: PAY_TYPE_LABEL[e.pay_type] ?? e.pay_type,
+          })),
+        },
+        members: members.map((m) => ({
+          name: m.name,
+          phone: m.phone_number,
+          email: m.email,
+          role: m.role,
+          roleLabel: ROLE_LABEL[m.role] ?? m.role,
+          memberSince: m.since,
         })),
       });
     },

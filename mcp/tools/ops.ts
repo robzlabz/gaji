@@ -1,5 +1,6 @@
 /**
- * Tool MCP: kasbon, tugas, audit log, dan query bebas read-only.
+ * Tool MCP: kasbon (saldo, rencana potong, buku transaksi), tugas, audit log,
+ * dan query bebas read-only.
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -129,6 +130,127 @@ export function registerOpsTools(server: McpServer) {
           deferredCount: rows.filter((r) => r.thisPeriod.deferred).length,
         },
         advances: rows,
+      });
+    },
+  );
+
+  /* ---------------------------------------------------------------- */
+  server.registerTool(
+    "gaji_kasbon_txns",
+    {
+      title: "Buku kasbon (pinjam & potong)",
+      description:
+        "Riwayat transaksi kasbon: kapan uang diberikan (`disburse`) dan kapan dipotong lewat slip gaji (`repay`), termasuk slip mana yang memotong. Dipakai untuk menjawab 'kasbon Rina sudah dipotong berapa kali / berapa total'.",
+      inputSchema: {
+        ...ORG_ARG,
+        employee: z.string().optional().describe("Batasi ke satu karyawan (nama/kode/id)."),
+        kind: z.enum(["disburse", "repay", "all"]).optional().describe("Default: all."),
+        since: z.string().optional().describe("Hanya transaksi sejak tanggal ini (YYYY-MM-DD)."),
+        limit: z.number().int().min(1).max(500).optional().describe("Default 100."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ org, employee, kind, since, limit }) => {
+      const target = await resolveOrg(org);
+      const emp = employee ? await resolveEmployee(target, employee) : null;
+
+      const params: unknown[] = [target.id];
+      const filters = ["ca.org_id = $1"];
+      if (emp) {
+        params.push(emp.id);
+        filters.push(`ca.employee_id = $${params.length}`);
+      }
+      if (kind && kind !== "all") {
+        params.push(kind);
+        filters.push(`t.kind = $${params.length}`);
+      }
+      if (since) {
+        params.push(since);
+        filters.push(`t.occurred_at >= $${params.length}::date`);
+      }
+      params.push(limit ?? 100);
+
+      const rows = await query<{
+        id: string;
+        advance_id: string;
+        employee: string;
+        kind: string;
+        amount: number;
+        occurred_at: string;
+        payslip_id: string | null;
+        note: string | null;
+        created_by: string | null;
+        balance: number;
+        principal: number;
+      }>(
+        `select t.id::text as id, ca.id as advance_id, e.full_name as employee, t.kind,
+                t.amount::float8 as amount, t.occurred_at, t.payslip_id, t.note,
+                u.name as created_by, ca.balance::float8 as balance, ca.principal::float8 as principal
+           from cash_advance_txns t
+           join cash_advances ca on ca.id = t.cash_advance_id
+           join employees e on e.id = ca.employee_id
+           left join "user" u on u.id = t.created_by
+          where ${filters.join(" and ")}
+          order by t.occurred_at desc, t.created_at desc
+          limit $${params.length}`,
+        params,
+      );
+
+      const txns = rows.map((t) => ({
+        id: t.id,
+        advanceId: t.advance_id,
+        employee: t.employee,
+        kind: t.kind,
+        amount: num(t.amount),
+        occurredAt: t.occurred_at,
+        payslipId: t.payslip_id,
+        viaPayslip: t.payslip_id !== null,
+        note: t.note,
+        createdBy: t.created_by,
+      }));
+
+      const disbursed = txns.filter((t) => t.kind === "disburse").reduce((s, t) => s + t.amount, 0);
+      const repaid = txns.filter((t) => t.kind === "repay").reduce((s, t) => s + t.amount, 0);
+
+      const perAdvance = new Map<
+        string,
+        {
+          advanceId: string;
+          employee: string;
+          principal: number;
+          balance: number;
+          disbursed: number;
+          repaid: number;
+          txns: number;
+        }
+      >();
+      for (const row of rows) {
+        const bucket = perAdvance.get(row.advance_id) ?? {
+          advanceId: row.advance_id,
+          employee: row.employee,
+          principal: num(row.principal),
+          balance: num(row.balance),
+          disbursed: 0,
+          repaid: 0,
+          txns: 0,
+        };
+        bucket.txns += 1;
+        if (row.kind === "disburse") bucket.disbursed = round(bucket.disbursed + num(row.amount));
+        if (row.kind === "repay") bucket.repaid = round(bucket.repaid + num(row.amount));
+        perAdvance.set(row.advance_id, bucket);
+      }
+
+      return toolResult({
+        org: { slug: target.slug, name: target.name },
+        employee: emp ? { id: emp.id, name: emp.fullName } : null,
+        summary: {
+          count: txns.length,
+          disbursed: round(disbursed),
+          repaid: round(repaid),
+          repayViaPayslip: txns.filter((t) => t.kind === "repay" && t.viaPayslip).length,
+        },
+        perAdvance: [...perAdvance.values()],
+        transactions: txns,
       });
     },
   );
