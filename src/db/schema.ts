@@ -504,6 +504,43 @@ export const auditLogs = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* MCP (Streamable HTTP)                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Kunci akses server MCP. Satu kunci = satu tenant: semua tool MCP yang dipanggil
+ * dengan kunci ini hanya bisa membaca org pemiliknya.
+ *
+ * Token asli tidak disimpan sebagai plaintext:
+ * - `tokenHash` (sha256) dipakai untuk mencocokkan Bearer token saat request masuk;
+ * - `tokenCipher` (AES-256-GCM, kunci turunan BETTER_AUTH_SECRET) hanya untuk
+ *   menampilkan kembali connection URL di halaman admin.
+ */
+export const mcpApiKeys = pgTable(
+  "mcp_api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Admin yang membuat kunci. */
+    createdBy: uuid("created_by").references(() => user.id, { onDelete: "set null" }),
+    name: text("name").notNull().default("MCP"),
+    /** Potongan awal token untuk ditampilkan tanpa membuka kuncinya. */
+    tokenPrefix: text("token_prefix").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    tokenCipher: text("token_cipher").notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("mcp_api_keys_hash_uniq").on(t.tokenHash),
+    index("mcp_api_keys_org_idx").on(t.orgId, t.createdAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Relations                                                           */
 /* ------------------------------------------------------------------ */
 

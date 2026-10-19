@@ -41,6 +41,28 @@ Buka http://localhost:3000.
 | `npm run db:push` | dorong schema Drizzle ke Postgres |
 | `npm run db:studio` | Drizzle Studio |
 | `npm run db:seed` | reset tenant demo + isi data contoh |
+| `npm run mcp` | server MCP stdio read-only untuk AI (lihat `mcp/README.md`) |
+| `npm run mcp:smoke` | uji server MCP lewat stdio: panggil semua tool, cetak hasil |
+| `npm run mcp:smoke:http` | uji endpoint `/api/mcp` (Streamable HTTP) |
+| `npm run mcp:key` | kelola API key MCP dari terminal (list / create / revoke) |
+
+## MCP untuk AI (pemantauan)
+
+Aplikasi ini melayani server [MCP](https://modelcontextprotocol.io) read-only berisi 19 tool —
+ringkasan harian, absensi real-time, antrean approval, simulasi payroll, kasbon, kontrak hampir
+habis, sampai audit log — supaya data Gaji bisa ditanya langsung lewat AI.
+
+Endpoint-nya **Streamable HTTP** di `/api/mcp`, dan kuncinya dikelola dari halaman **MCP** di
+dashboard admin (`/admin/mcp`): Connection URL, Server URL, header Authorization, plus tombol
+buat/cabut kunci. Setiap kunci hanya bisa membaca satu organisasi.
+
+```bash
+npm run dev                        # lalu buka /admin/mcp dan salin Connection URL
+npm run mcp:smoke:http -- --port 3000   # bukti jalan lewat HTTP
+```
+
+Semua query tool dibungkus transaksi `read only` + `statement_timeout` 20s, jadi tidak mungkin
+mengubah data. Detail transport, auth, dan cara pasang di client: [`mcp/README.md`](mcp/README.md).
 
 ## Struktur singkat
 

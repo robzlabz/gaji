@@ -11,10 +11,15 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --env-file=.env src/db/seed.ts",
-    "check:cuti": "tsx scripts/check-cuti-payroll.ts"
+    "check:cuti": "tsx scripts/check-cuti-payroll.ts",
+    "mcp": "tsx mcp/server.ts",
+    "mcp:smoke": "tsx mcp/smoke.ts",
+    "mcp:smoke:http": "tsx --env-file=.env mcp/smoke-http.ts",
+    "mcp:key": "tsx --env-file=.env scripts/mcp-key.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "better-auth": "^1.7.10",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.0",
