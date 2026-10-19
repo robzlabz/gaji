@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { CameraIcon, MapPinIcon } from "lucide-react";
-import { clockInAction, clockOutAction } from "@/app/employee/actions";
+import { CameraIcon, CheckIcon, MapPinIcon } from "lucide-react";
+import { clockInAction, clockOutAction, saveCaptureAction } from "@/app/employee/actions";
+import { LiveDuration } from "@/components/live-duration";
 import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,13 @@ type OpenEntry = {
   breakMinutes: number;
   overtimeMinutes: number;
   overtimeNote: string | null;
+  /** Foto/lokasi clock-out yang sudah tersimpan di server (hasil auto-save). */
+  outPhotoSaved: boolean;
+  outLat: number | null;
+  outLng: number | null;
 };
+
+type Coords = { lat: number; lng: number; accuracy: number | null };
 
 async function fileToDataUrl(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file);
@@ -40,50 +47,101 @@ function getPosition(): Promise<GeolocationPosition | null> {
 
 export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
   const [photo, setPhoto] = useState<string>("");
-  const [coords, setCoords] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+  const [photoSaved, setPhotoSaved] = useState<boolean>(openEntry?.outPhotoSaved ?? false);
+  const [coords, setCoords] = useState<Coords | null>(
+    openEntry?.outLat != null && openEntry?.outLng != null
+      ? { lat: openEntry.outLat, lng: openEntry.outLng, accuracy: null }
+      : null,
+  );
+  const [coordsSaved, setCoordsSaved] = useState<boolean>(
+    openEntry?.outLat != null && openEntry?.outLng != null,
+  );
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  // Jam langsung jalan begitu tombol clock in ditekan, tanpa menunggu round-trip server.
+  const [optimisticStart, setOptimisticStart] = useState<string | null>(null);
+
+  const startedAt = openEntry?.clockInAtISO ?? optimisticStart;
+
+  /** Sudah clock in → foto/lokasi langsung ditulis ke sesi yang terbuka. */
+  async function autoSave(payload: { photo?: string; lat?: number; lng?: number }): Promise<void> {
+    const result = await saveCaptureAction(payload);
+    if (payload.photo) setPhotoSaved(result.ok);
+    if (payload.lat !== undefined) setCoordsSaved(result.ok);
+    setStatus(result.message);
+  }
 
   async function prepare(): Promise<void> {
     setBusy(true);
     setStatus("Mengambil lokasi…");
-    const position = await getPosition();
-    if (position) {
-      setCoords({
+    try {
+      const position = await getPosition();
+      if (!position) {
+        if (coordsSaved) {
+          setStatus("Lokasi baru tidak didapat — lokasi yang sudah tersimpan tetap dipakai.");
+        } else {
+          setCoords(null);
+          setStatus("Lokasi tidak tersedia — absensi tetap bisa disimpan.");
+        }
+        return;
+      }
+
+      const next: Coords = {
         lat: position.coords.latitude,
         lng: position.coords.longitude,
         accuracy: position.coords.accuracy,
-      });
-      setStatus("Lokasi siap.");
-    } else {
-      setCoords(null);
-      setStatus("Lokasi tidak tersedia — absensi tetap bisa disimpan.");
+      };
+      setCoords(next);
+
+      if (openEntry) {
+        await autoSave({ lat: next.lat, lng: next.lng });
+      } else {
+        setStatus("Lokasi siap — ikut tersimpan saat kamu tekan Clock in.");
+      }
+    } catch {
+      setStatus("Gagal menyimpan lokasi.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
     <form
       action={openEntry ? clockOutAction : clockInAction}
       className="flex flex-col gap-3"
-      onSubmit={() => setBusy(true)}
+      onSubmit={() => {
+        setBusy(true);
+        if (!openEntry) setOptimisticStart(new Date().toISOString());
+      }}
     >
       <input type="hidden" name="lat" value={coords?.lat ?? ""} />
       <input type="hidden" name="lng" value={coords?.lng ?? ""} />
       <input type="hidden" name="accuracy" value={coords?.accuracy ?? ""} />
       <input type="hidden" name="photo" value={photo} />
 
+      {startedAt && (
+        <div className="rounded-xl border bg-muted/40 px-3 py-2 text-center">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {openEntry ? "Durasi sesi berjalan" : "Menyimpan clock in…"}
+          </p>
+          <LiveDuration since={startedAt} className="text-2xl font-semibold tabular-nums" />
+        </div>
+      )}
+
       <div className="rounded-xl border bg-muted/40 p-3">
         <p className="text-xs text-muted-foreground">
-          Foto &amp; lokasi opsional. Kalau diizinkan, lokasi diambil sekali saat tombol ditekan.
+          Foto &amp; lokasi opsional.{" "}
+          {openEntry
+            ? "Sesi sudah berjalan — foto dan lokasi langsung tersimpan otomatis."
+            : "Kalau diizinkan, lokasi diambil sekali saat tombol ditekan."}
         </p>
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" size="sm">
             <label className="cursor-pointer">
               <CameraIcon />
-              {photo ? "Ganti foto" : "Ambil foto"}
+              {photo || photoSaved ? "Ganti foto" : "Ambil foto"}
               <input
                 type="file"
                 accept="image/*"
@@ -94,7 +152,13 @@ export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
                   if (!file) return;
                   setBusy(true);
                   try {
-                    setPhoto(await fileToDataUrl(file));
+                    const dataUrl = await fileToDataUrl(file);
+                    setPhoto(dataUrl);
+                    if (openEntry) {
+                      await autoSave({ photo: dataUrl });
+                    } else {
+                      setStatus("Foto siap — ikut tersimpan saat kamu tekan Clock in.");
+                    }
                   } catch {
                     setStatus("Gagal memproses foto.");
                   } finally {
@@ -110,10 +174,26 @@ export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
             {coords ? "Perbarui lokasi" : "Ambil lokasi"}
           </Button>
 
-          {coords && (
-            <span className="text-xs text-muted-foreground">
-              {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)} (±{Math.round(coords.accuracy)}m)
+          {photoSaved && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckIcon className="size-3.5" />
+              Foto tersimpan
             </span>
+          )}
+
+          {coords ? (
+            <span className="text-xs text-muted-foreground">
+              {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+              {coords.accuracy != null ? ` (±${Math.round(coords.accuracy)}m)` : ""}
+              {coordsSaved ? " · tersimpan" : ""}
+            </span>
+          ) : (
+            coordsSaved && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                <CheckIcon className="size-3.5" />
+                Lokasi tersimpan
+              </span>
+            )
           )}
         </div>
 

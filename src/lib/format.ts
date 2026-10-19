@@ -147,6 +147,18 @@ export function minutesToHoursLabel(minutes: number): string {
   return `${h}j ${m}m`;
 }
 
+/**
+ * Durasi berjalan dalam format jam:menit:detik (mis. "01:07:09").
+ * Dipakai oleh komponen jam live di halaman absen karyawan.
+ */
+export function formatDurationClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
 export function daysBetweenInclusive(start: string, end: string): number {
   const a = new Date(`${start}T00:00:00Z`).getTime();
   const b = new Date(`${end}T00:00:00Z`).getTime();
