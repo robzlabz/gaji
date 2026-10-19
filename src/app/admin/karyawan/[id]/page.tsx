@@ -16,14 +16,15 @@ import {
 import { requireAdmin } from "@/lib/session";
 import {
   createAdvanceAction,
-  createLeaveAction,
   decideLeaveAction,
+  deleteLeaveAction,
   resetPinAction,
   updateEmployeeAction,
 } from "../../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { SaldoPanel } from "@/app/admin/saldo/saldo-panel";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { StatusBadge } from "@/components/status-badge";
 import { TabNav, type TabNavItem } from "@/components/tab-nav";
 import { statusLabel } from "@/lib/labels";
@@ -51,7 +52,7 @@ import {
   toNumber,
 } from "@/lib/format";
 import { workedMinutes } from "@/lib/payroll";
-import { LEAVE_KIND_OPTIONS, leaveKindLabel, leaveStatusTone } from "@/lib/leave";
+import { leaveKindLabel, leavePaidLabel, leaveStatusTone } from "@/lib/leave";
 
 const PAY_TYPE_OPTIONS = [
   { value: "hourly", label: "Per jam" },
@@ -584,10 +585,19 @@ export default async function EmployeeDetailPage({
                 ? "Cuti berbayar yang disetujui tetap dihitung sebagai hari kerja di payroll."
                 : "Cuti hanya berlaku untuk karyawan bulanan."}
             </CardDescription>
-            <CardAction>
+            <CardAction className="flex items-center gap-1">
               <Button asChild variant="ghost" size="sm">
                 <Link href="/admin/cuti">Kelola cuti</Link>
               </Button>
+              {employee.payType === "monthly" ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link
+                    href={`/admin/cuti/baru?employeeId=${employee.id}&backTo=${encodeURIComponent(tabUrl("cuti"))}`}
+                  >
+                    + Catat cuti
+                  </Link>
+                </Button>
+              ) : null}
             </CardAction>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -601,101 +611,88 @@ export default async function EmployeeDetailPage({
                 {leaveRows.length === 0 ? (
                   <EmptyState
                     title="Belum ada cuti"
-                    hint="Catat cuti lewat form di bawah, atau tunggu pengajuan dari karyawan."
+                    hint="Catat cuti lewat tombol di atas, atau tunggu pengajuan dari karyawan."
                   />
                 ) : (
                   <ul className="flex flex-col gap-3">
-                    {leaveRows.map((row) => (
-                      <li key={row.id} className="rounded-lg border p-3">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium">
-                              {leaveKindLabel(row.kind)} · {row.days} hari
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatDateID(row.startDate)} – {formatDateID(row.endDate)} ·{" "}
-                              {row.paid ? "berbayar" : "tanpa upah"}
-                            </p>
-                            {row.note ? (
-                              <p className="mt-1 text-xs text-muted-foreground">{row.note}</p>
-                            ) : null}
-                            {row.status === "rejected" && row.rejectReason ? (
-                              <p className="mt-1 text-xs text-destructive">
-                                Alasan ditolak: {row.rejectReason}
+                    {leaveRows.map((row) => {
+                      const deleteFormId = `delete-leave-karyawan-${row.id}`;
+                      return (
+                        <li key={row.id} className="rounded-lg border p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium">
+                                {leaveKindLabel(row.kind)} · {row.days} hari
                               </p>
-                            ) : null}
+                              <p className="text-xs text-muted-foreground">
+                                {formatDateID(row.startDate)} – {formatDateID(row.endDate)} ·{" "}
+                                {leavePaidLabel(row.paid)}
+                              </p>
+                              {row.note ? (
+                                <p className="mt-1 text-xs text-muted-foreground">{row.note}</p>
+                              ) : null}
+                              {row.status === "rejected" && row.rejectReason ? (
+                                <p className="mt-1 text-xs text-destructive">
+                                  Alasan ditolak: {row.rejectReason}
+                                </p>
+                              ) : null}
+                            </div>
+                            <StatusBadge tone={leaveStatusTone(row.status)}>
+                              {statusLabel(row.status)}
+                            </StatusBadge>
                           </div>
-                          <StatusBadge tone={leaveStatusTone(row.status)}>
-                            {statusLabel(row.status)}
-                          </StatusBadge>
-                        </div>
 
-                        {row.status === "pending" ? (
                           <div className="mt-3 flex flex-wrap items-end gap-2">
-                            <form action={decideLeaveAction}>
+                            {row.status === "pending" ? (
+                              <>
+                                <form action={decideLeaveAction}>
+                                  <input type="hidden" name="leaveId" value={row.id} />
+                                  <input type="hidden" name="decision" value="approved" />
+                                  <input type="hidden" name="backTo" value={tabUrl("cuti")} />
+                                  <Button type="submit" size="sm">
+                                    Setujui
+                                  </Button>
+                                </form>
+                                <form
+                                  action={decideLeaveAction}
+                                  className="flex flex-1 items-end gap-2"
+                                >
+                                  <input type="hidden" name="leaveId" value={row.id} />
+                                  <input type="hidden" name="decision" value="rejected" />
+                                  <input type="hidden" name="backTo" value={tabUrl("cuti")} />
+                                  <FormField label="Alasan tolak" className="min-w-36 flex-1">
+                                    <Input name="rejectReason" placeholder="opsional" />
+                                  </FormField>
+                                  <Button type="submit" size="sm" variant="outline">
+                                    Tolak
+                                  </Button>
+                                </form>
+                              </>
+                            ) : null}
+
+                            <Button asChild size="sm" variant="outline">
+                              <Link
+                                href={`/admin/cuti/${row.id}?backTo=${encodeURIComponent(tabUrl("cuti"))}`}
+                              >
+                                Ubah
+                              </Link>
+                            </Button>
+                            <form id={deleteFormId} action={deleteLeaveAction}>
                               <input type="hidden" name="leaveId" value={row.id} />
-                              <input type="hidden" name="decision" value="approved" />
                               <input type="hidden" name="backTo" value={tabUrl("cuti")} />
-                              <Button type="submit" size="sm">
-                                Setujui
-                              </Button>
-                            </form>
-                            <form
-                              action={decideLeaveAction}
-                              className="flex flex-1 items-end gap-2"
-                            >
-                              <input type="hidden" name="leaveId" value={row.id} />
-                              <input type="hidden" name="decision" value="rejected" />
-                              <input type="hidden" name="backTo" value={tabUrl("cuti")} />
-                              <FormField label="Alasan tolak" className="min-w-36 flex-1">
-                                <Input name="rejectReason" placeholder="opsional" />
-                              </FormField>
-                              <Button type="submit" size="sm" variant="outline">
-                                Tolak
-                              </Button>
+                              <ConfirmDeleteButton
+                                formId={deleteFormId}
+                                title="Hapus cuti ini?"
+                                description={`Cuti ${leaveKindLabel(row.kind)} ${row.days} hari (${formatDateID(row.startDate)} – ${formatDateID(row.endDate)}) akan dihapus permanen.`}
+                                confirmLabel="Ya, hapus"
+                              />
                             </form>
                           </div>
-                        ) : null}
-                      </li>
-                    ))}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
-
-                <Separator />
-
-                <form action={createLeaveAction} className="flex flex-col gap-3">
-                  <input type="hidden" name="employeeId" value={employee.id} />
-                  <input type="hidden" name="backTo" value={tabUrl("cuti")} />
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <FormField label="Jenis">
-                      <SelectInput name="kind" defaultValue="cuti">
-                        {LEAVE_KIND_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </SelectInput>
-                    </FormField>
-                    <FormField label="Upah">
-                      <SelectInput name="paid" defaultValue="1">
-                        <option value="1">Berbayar (gaji tetap)</option>
-                        <option value="0">Tanpa upah</option>
-                      </SelectInput>
-                    </FormField>
-                    <FormField label="Tanggal mulai">
-                      <Input type="date" name="startDate" defaultValue={today} required />
-                    </FormField>
-                    <FormField label="Tanggal selesai" hint="Isi sama bila hanya satu hari">
-                      <Input type="date" name="endDate" defaultValue={today} />
-                    </FormField>
-                  </div>
-                  <FormField label="Catatan" hint="Opsional">
-                    <Input name="note" placeholder="cuti tahunan" />
-                  </FormField>
-                  <div>
-                    <Button type="submit">Catat cuti</Button>
-                  </div>
-                </form>
               </>
             )}
           </CardContent>

@@ -1,13 +1,15 @@
-import { and, desc, eq } from "drizzle-orm";
+import Link from "next/link";
+import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, leaves } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { createLeaveAction, decideLeaveAction } from "../actions";
+import { decideLeaveAction, deleteLeaveAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
-import { FormField, SelectInput } from "@/components/form-field";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
+import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { formatDateID, localDateString } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
-import { LEAVE_KIND_OPTIONS, leaveKindLabel, leaveStatusTone } from "@/lib/leave";
+import { leaveKindLabel, leavePaidLabel, leaveStatusTone } from "@/lib/leave";
 import { statusLabel } from "@/lib/labels";
 
 const BACK_TO = "/admin/cuti";
@@ -37,38 +39,25 @@ export default async function AdminLeavePage({
   const today = localDateString(new Date(), org.timezone);
   const period = periodContaining(today, org.payPeriodStartDay);
 
-  const [staff, rows] = await Promise.all([
-    db
-      .select({ id: employees.id, fullName: employees.fullName })
-      .from(employees)
-      .where(
-        and(
-          eq(employees.orgId, org.id),
-          eq(employees.isActive, true),
-          eq(employees.payType, "monthly"),
-        ),
-      )
-      .orderBy(employees.fullName),
-    db
-      .select({
-        id: leaves.id,
-        kind: leaves.kind,
-        startDate: leaves.startDate,
-        endDate: leaves.endDate,
-        days: leaves.days,
-        paid: leaves.paid,
-        status: leaves.status,
-        note: leaves.note,
-        rejectReason: leaves.rejectReason,
-        employeeId: employees.id,
-        employeeName: employees.fullName,
-      })
-      .from(leaves)
-      .innerJoin(employees, eq(leaves.employeeId, employees.id))
-      .where(eq(leaves.orgId, org.id))
-      .orderBy(desc(leaves.startDate))
-      .limit(100),
-  ]);
+  const rows = await db
+    .select({
+      id: leaves.id,
+      kind: leaves.kind,
+      startDate: leaves.startDate,
+      endDate: leaves.endDate,
+      days: leaves.days,
+      paid: leaves.paid,
+      status: leaves.status,
+      note: leaves.note,
+      rejectReason: leaves.rejectReason,
+      employeeId: employees.id,
+      employeeName: employees.fullName,
+    })
+    .from(leaves)
+    .innerJoin(employees, eq(leaves.employeeId, employees.id))
+    .where(eq(leaves.orgId, org.id))
+    .orderBy(desc(leaves.startDate))
+    .limit(100);
 
   const pending = rows.filter((row) => row.status === "pending");
   const approvedThisPeriod = rows
@@ -80,12 +69,17 @@ export default async function AdminLeavePage({
 
   return (
     <>
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Cuti</h1>
-        <p className="text-sm text-muted-foreground">
-          Cuti hanya untuk karyawan bulanan. Cuti berbayar yang disetujui tetap dihitung sebagai
-          hari kerja di payroll.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Cuti</h1>
+          <p className="text-sm text-muted-foreground">
+            Cuti hanya untuk karyawan bulanan. Cuti berbayar yang disetujui tetap dihitung sebagai
+            hari kerja di payroll.
+          </p>
+        </div>
+        <Button asChild>
+          <Link href="/admin/cuti/baru">+ Catat cuti</Link>
+        </Button>
       </header>
 
       <Flash ok={ok} err={err} />
@@ -104,7 +98,8 @@ export default async function AdminLeavePage({
         <CardHeader>
           <CardTitle>Menunggu persetujuan</CardTitle>
           <CardDescription>
-            Setujui bila cuti berbayar — harinya tetap dibayar saat payroll dihitung.
+            Setujui bila cuti berbayar — harinya tetap dibayar saat payroll dihitung. Isi cuti bisa
+            diperbaiki dulu lewat Ubah.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -124,7 +119,7 @@ export default async function AdminLeavePage({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {formatDateID(row.startDate)} – {formatDateID(row.endDate)} ·{" "}
-                        {row.paid ? "berbayar" : "tanpa upah"}
+                        {leavePaidLabel(row.paid)}
                       </p>
                       {row.note ? (
                         <p className="mt-1 text-xs text-muted-foreground">{row.note}</p>
@@ -156,6 +151,10 @@ export default async function AdminLeavePage({
                         Tolak
                       </Button>
                     </form>
+
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/admin/cuti/${row.id}`}>Ubah</Link>
+                    </Button>
                   </div>
                 </li>
               ))}
@@ -166,68 +165,10 @@ export default async function AdminLeavePage({
 
       <Card>
         <CardHeader>
-          <CardTitle>Catat cuti</CardTitle>
-          <CardDescription>
-            Untuk cuti yang sudah disepakati langsung — tersimpan sebagai disetujui. Hanya karyawan
-            bulanan yang muncul di daftar.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {staff.length === 0 ? (
-            <EmptyState
-              title="Belum ada karyawan bulanan"
-              hint="Ubah tipe penggajian karyawan menjadi bulanan untuk memakai cuti."
-            />
-          ) : (
-            <form action={createLeaveAction} className="flex flex-col gap-3">
-              <input type="hidden" name="backTo" value={BACK_TO} />
-              <div className="grid gap-3 md:grid-cols-2">
-                <FormField label="Karyawan">
-                  <SelectInput name="employeeId" required>
-                    {staff.map((row) => (
-                      <option key={row.id} value={row.id}>
-                        {row.fullName}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Jenis">
-                  <SelectInput name="kind" defaultValue="cuti">
-                    {LEAVE_KIND_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </FormField>
-                <FormField label="Tanggal mulai">
-                  <Input type="date" name="startDate" defaultValue={today} required />
-                </FormField>
-                <FormField label="Tanggal selesai" hint="Isi sama bila hanya satu hari">
-                  <Input type="date" name="endDate" defaultValue={today} />
-                </FormField>
-                <FormField label="Upah">
-                  <SelectInput name="paid" defaultValue="1">
-                    <option value="1">Berbayar (gaji tetap)</option>
-                    <option value="0">Tanpa upah</option>
-                  </SelectInput>
-                </FormField>
-                <FormField label="Catatan" hint="Opsional">
-                  <Input name="note" placeholder="cuti tahunan" />
-                </FormField>
-              </div>
-              <div>
-                <Button type="submit">Simpan cuti</Button>
-              </div>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Riwayat cuti</CardTitle>
-          <CardDescription>{rows.length} pengajuan terakhir</CardDescription>
+          <CardDescription>
+            {rows.length} pengajuan terakhir. Ubah untuk memperbaiki isi, hapus untuk membuangnya.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
@@ -245,30 +186,51 @@ export default async function AdminLeavePage({
                   <TableHead className="text-right">Hari</TableHead>
                   <TableHead>Upah</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-medium">{row.employeeName}</TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {formatDateID(row.startDate)} – {formatDateID(row.endDate)}
-                    </TableCell>
-                    <TableCell>{leaveKindLabel(row.kind)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{row.days}</TableCell>
-                    <TableCell>{row.paid ? "berbayar" : "tanpa upah"}</TableCell>
-                    <TableCell>
-                      <StatusBadge tone={leaveStatusTone(row.status)}>
-                        {statusLabel(row.status)}
-                      </StatusBadge>
-                      {row.status === "rejected" && row.rejectReason ? (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {row.rejectReason}
-                        </span>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {rows.map((row) => {
+                  const deleteFormId = `delete-leave-row-${row.id}`;
+                  return (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-medium">{row.employeeName}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {formatDateID(row.startDate)} – {formatDateID(row.endDate)}
+                      </TableCell>
+                      <TableCell>{leaveKindLabel(row.kind)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{row.days}</TableCell>
+                      <TableCell>{leavePaidLabel(row.paid)}</TableCell>
+                      <TableCell>
+                        <StatusBadge tone={leaveStatusTone(row.status)}>
+                          {statusLabel(row.status)}
+                        </StatusBadge>
+                        {row.status === "rejected" && row.rejectReason ? (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {row.rejectReason}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/admin/cuti/${row.id}`}>Ubah</Link>
+                          </Button>
+                          <form id={deleteFormId} action={deleteLeaveAction}>
+                            <input type="hidden" name="leaveId" value={row.id} />
+                            <input type="hidden" name="backTo" value={BACK_TO} />
+                            <ConfirmDeleteButton
+                              formId={deleteFormId}
+                              title="Hapus cuti ini?"
+                              description={`Cuti ${leaveKindLabel(row.kind)} ${row.days} hari milik ${row.employeeName} (${formatDateID(row.startDate)} – ${formatDateID(row.endDate)}) akan dihapus permanen.`}
+                              confirmLabel="Ya, hapus"
+                            />
+                          </form>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

@@ -1143,12 +1143,42 @@ function dateField(fd: FormData, key: string): string | null {
 }
 
 /**
- * Admin mencatat cuti langsung (langsung disetujui). Dipakai dari halaman Cuti
- * maupun tab Cuti di detail karyawan; `backTo` menentukan arah redirect.
+ * Rentang cuti yang bertumpuk dengan cuti pending/disetujui milik karyawan yang sama.
+ * `exceptId` dipakai saat mengubah cuti supaya barisnya sendiri tidak dianggap bentrok.
+ */
+async function findLeaveOverlap(
+  employeeId: string,
+  startDate: string,
+  endDate: string,
+  exceptId?: string,
+): Promise<{ id: string; startDate: string; endDate: string } | undefined> {
+  const rows = await db
+    .select({ id: leaves.id, startDate: leaves.startDate, endDate: leaves.endDate })
+    .from(leaves)
+    .where(
+      and(
+        eq(leaves.employeeId, employeeId),
+        inArray(leaves.status, ["pending", "approved"]),
+        lte(leaves.startDate, endDate),
+        gte(leaves.endDate, startDate),
+      ),
+    );
+
+  return rows.find((row) => row.id !== exceptId);
+}
+
+function overlapMessage(row: { startDate: string; endDate: string }): string {
+  return `Sudah ada cuti pending/disetujui di ${formatDateID(row.startDate)} – ${formatDateID(row.endDate)}.`;
+}
+
+/**
+ * Admin mencatat cuti langsung (langsung disetujui).
+ * `backTo` = halaman form (tujuan error), `successTo` = daftar/tab asal (tujuan sukses).
  */
 export async function createLeaveAction(formData: FormData) {
   const { org, user } = await requireAdmin();
-  const backTo = adminPath(formData, "backTo", "/admin/cuti");
+  const backTo = adminPath(formData, "backTo", "/admin/cuti/baru");
+  const successTo = adminPath(formData, "successTo", "/admin/cuti");
   const employeeId = str(formData, "employeeId");
 
   const [employee] = await db
@@ -1172,20 +1202,8 @@ export async function createLeaveAction(formData: FormData) {
   const days = leaveWorkDays(startDate, endDate);
   if (days === 0) fail(backTo, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
 
-  const [overlap] = await db
-    .select({ id: leaves.id })
-    .from(leaves)
-    .where(
-      and(
-        eq(leaves.employeeId, employee.id),
-        inArray(leaves.status, ["pending", "approved"]),
-        lte(leaves.startDate, endDate),
-        gte(leaves.endDate, startDate),
-      ),
-    )
-    .limit(1);
-
-  if (overlap) fail(backTo, "Sudah ada cuti pending/disetujui di rentang tanggal itu.");
+  const overlap = await findLeaveOverlap(employee.id, startDate, endDate);
+  if (overlap) fail(backTo, overlapMessage(overlap));
 
   const [row] = await db
     .insert(leaves)
@@ -1217,7 +1235,114 @@ export async function createLeaveAction(formData: FormData) {
   revalidatePath("/admin/cuti");
   revalidatePath(`/admin/karyawan/${employee.id}`);
   revalidatePath("/employee/cuti");
-  ok(backTo, `Cuti ${days} hari dicatat untuk ${employee.fullName}.`);
+  ok(successTo, `Cuti ${days} hari dicatat untuk ${employee.fullName}.`);
+}
+
+/** Admin mengubah cuti yang sudah ada: tanggal, jenis, upah, dan catatan. */
+export async function updateLeaveAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const leaveId = str(formData, "leaveId");
+  const backTo = adminPath(formData, "backTo", `/admin/cuti/${leaveId}`);
+  const successTo = adminPath(formData, "successTo", "/admin/cuti");
+
+  const [row] = await db
+    .select({ leave: leaves, payType: employees.payType, fullName: employees.fullName })
+    .from(leaves)
+    .innerJoin(employees, eq(leaves.employeeId, employees.id))
+    .where(and(eq(leaves.id, leaveId), eq(leaves.orgId, org.id)))
+    .limit(1);
+
+  if (!row) fail("/admin/cuti", "Cuti tidak ditemukan.");
+  if (row.payType !== "monthly") {
+    fail(backTo, "Cuti hanya berlaku untuk karyawan bulanan.");
+  }
+
+  const startDate = dateField(formData, "startDate");
+  const endDate = dateField(formData, "endDate") ?? startDate;
+  if (!startDate) fail(backTo, "Tanggal mulai cuti tidak valid.");
+  if (!endDate || endDate < startDate) {
+    fail(backTo, "Tanggal selesai tidak boleh sebelum tanggal mulai.");
+  }
+
+  const days = leaveWorkDays(startDate, endDate);
+  if (days === 0) fail(backTo, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
+
+  const overlap = await findLeaveOverlap(row.leave.employeeId, startDate, endDate, row.leave.id);
+  if (overlap) fail(backTo, overlapMessage(overlap));
+
+  const kind = normalizeLeaveKind(str(formData, "kind"));
+  const paid = str(formData, "paid") !== "0";
+  const note = str(formData, "note") || null;
+
+  await db
+    .update(leaves)
+    .set({ kind, startDate, endDate, days, paid, note })
+    .where(eq(leaves.id, row.leave.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "leaves",
+    entityId: row.leave.id,
+    action: "updated",
+    diff: {
+      before: {
+        kind: row.leave.kind,
+        startDate: row.leave.startDate,
+        endDate: row.leave.endDate,
+        days: row.leave.days,
+        paid: row.leave.paid,
+        note: row.leave.note,
+      },
+      after: { kind, startDate, endDate, days, paid, note },
+    },
+  });
+
+  revalidatePath("/admin/cuti");
+  revalidatePath(`/admin/cuti/${row.leave.id}`);
+  revalidatePath(`/admin/karyawan/${row.leave.employeeId}`);
+  revalidatePath("/employee/cuti");
+  ok(successTo, `Cuti ${row.fullName} diperbarui (${days} hari).`);
+}
+
+/** Admin menghapus cuti. Cuti yang sudah disetujui ikut hilang dari hitungan payroll. */
+export async function deleteLeaveAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const leaveId = str(formData, "leaveId");
+  const backTo = adminPath(formData, "backTo", "/admin/cuti");
+
+  const [row] = await db
+    .select({ leave: leaves, fullName: employees.fullName })
+    .from(leaves)
+    .innerJoin(employees, eq(leaves.employeeId, employees.id))
+    .where(and(eq(leaves.id, leaveId), eq(leaves.orgId, org.id)))
+    .limit(1);
+
+  if (!row) fail("/admin/cuti", "Cuti tidak ditemukan.");
+
+  await db.delete(leaves).where(eq(leaves.id, row.leave.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "leaves",
+    entityId: row.leave.id,
+    action: "deleted",
+    diff: {
+      employeeId: row.leave.employeeId,
+      kind: row.leave.kind,
+      startDate: row.leave.startDate,
+      endDate: row.leave.endDate,
+      days: row.leave.days,
+      paid: row.leave.paid,
+      status: row.leave.status,
+    },
+  });
+
+  revalidatePath("/admin/cuti");
+  revalidatePath(`/admin/karyawan/${row.leave.employeeId}`);
+  revalidatePath("/employee/cuti");
+  ok(backTo, `Cuti ${row.fullName} dihapus.`);
 }
 
 /** Setujui / tolak pengajuan cuti karyawan. */
