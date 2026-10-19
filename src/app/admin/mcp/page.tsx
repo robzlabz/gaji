@@ -92,7 +92,7 @@ export default async function McpPage({
                     <TableHead>Nama</TableHead>
                     <TableHead className="hidden sm:table-cell">Potongan kunci</TableHead>
                     <TableHead className="hidden md:table-cell">Dibuat</TableHead>
-                    <TableHead className="hidden md:table-cell">Terakhir dipakai</TableHead>
+                    <TableHead>Terakhir dipakai</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Aksi</TableHead>
                   </TableRow>
@@ -107,8 +107,14 @@ export default async function McpPage({
                       <TableCell className="hidden whitespace-nowrap text-xs text-muted-foreground md:table-cell">
                         {formatDateTimeID(key.createdAt)}
                       </TableCell>
-                      <TableCell className="hidden whitespace-nowrap text-xs text-muted-foreground md:table-cell">
-                        {key.lastUsedAt ? formatDateTimeID(key.lastUsedAt) : "belum pernah"}
+                      <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                        {key.lastUsedAt ? (
+                          <time dateTime={key.lastUsedAt.toISOString()}>
+                            {formatDateTimeID(key.lastUsedAt)}
+                          </time>
+                        ) : (
+                          "belum pernah"
+                        )}
                       </TableCell>
                       <TableCell>
                         {key.revokedAt ? (
