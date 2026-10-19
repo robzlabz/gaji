@@ -16,7 +16,7 @@
 # next.js
 /.next/
 /out/
-.next-old-build/
+.next-old-build*/
 .inspect.sh
 
 # production
@@ -31,6 +31,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+next-*.log
+
+# skrip screenshot lokal (Playwright) — hasilnya masuk docs/
+/.shots
 
 # env files (can opt-in for committing if needed)
 .env*

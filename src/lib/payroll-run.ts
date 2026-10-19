@@ -2,9 +2,20 @@ import "server-only";
 
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { cashAdvancePlans, cashAdvances, employees, leaves, timeEntries, workTasks } from "@/db/schema";
+import {
+  cashAdvancePlans,
+  cashAdvances,
+  employees,
+  leaves,
+  payRateHistory,
+  timeEntries,
+  wageFloats,
+  wageFloatTxns,
+  workTasks,
+} from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
 import { advanceLabel, isAdvanceEligible, resolveAdvanceDeduction } from "@/lib/kasbon";
+import { balanceBefore, coverageForPeriod, periodLedgerSummary, rateAtDate } from "@/lib/saldo";
 import type { Period } from "@/lib/period";
 import { toNumber } from "@/lib/format";
 
@@ -23,6 +34,20 @@ export type PayrollRow = {
   employee: typeof employees.$inferSelect;
   computation: PayslipComputation;
   advanceSummary: AdvanceSummary;
+  /** Bagian upah periode ini yang sudah dibayar lewat saldo prabayar. */
+  saldo: SaldoPeriodSummary;
+};
+
+export type SaldoPeriodSummary = {
+  /** Ada/tidak baris saldo milik karyawan ini. */
+  active: boolean;
+  balanceStart: number;
+  fundingInPeriod: number;
+  accrualTotal: number;
+  /** Upah yang ditutup saldo (dikurangkan dari tunai). */
+  covered: number;
+  /** Kekurangan bayar yang harus diserahkan tunai saat finalisasi. */
+  shortfall: number;
 };
 
 export type PayrollPreview = {
@@ -118,6 +143,81 @@ export async function previewPayroll(
 
   const planByAdvance = new Map(plans.map((plan) => [plan.cashAdvanceId, plan]));
 
+  // Riwayat tarif dipakai untuk "tarif saat kejadian": absensi tanggal lama tetap
+  // dihitung dengan tarif yang berlaku saat itu, bukan tarif sekarang.
+  const rateRows = await db
+    .select({
+      employeeId: payRateHistory.employeeId,
+      kind: payRateHistory.kind,
+      payRate: payRateHistory.payRate,
+      effectiveFrom: payRateHistory.effectiveFrom,
+    })
+    .from(payRateHistory)
+    .where(inArray(payRateHistory.employeeId, employeeIds));
+
+  const rateHistoryByEmployee = new Map<string, typeof rateRows>();
+  for (const row of rateRows) {
+    const list = rateHistoryByEmployee.get(row.employeeId) ?? [];
+    list.push(row);
+    rateHistoryByEmployee.set(row.employeeId, list);
+  }
+
+  // Saldo prabayar: hanya karyawan yang punya baris saldo yang upahnya dipotong saldo.
+  const floats = await db
+    .select()
+    .from(wageFloats)
+    .where(and(eq(wageFloats.orgId, orgId), inArray(wageFloats.employeeId, employeeIds)));
+
+  const floatByEmployee = new Map(floats.map((row) => [row.employeeId, row]));
+
+  const saldoTxns = floats.length
+    ? await db
+        .select({
+          floatId: wageFloatTxns.floatId,
+          kind: wageFloatTxns.kind,
+          amount: wageFloatTxns.amount,
+          occurredAt: wageFloatTxns.occurredAt,
+        })
+        .from(wageFloatTxns)
+        .where(inArray(wageFloatTxns.floatId, floats.map((row) => row.id)))
+    : [];
+
+  const txnsByFloat = new Map<string, typeof saldoTxns>();
+  for (const txn of saldoTxns) {
+    const list = txnsByFloat.get(txn.floatId) ?? [];
+    list.push(txn);
+    txnsByFloat.set(txn.floatId, list);
+  }
+
+  /** Ringkasan saldo untuk satu karyawan pada periode ini (dari ledger, bukan cache). */
+  function saldoFor(employeeId: string): SaldoPeriodSummary {
+    const floatRow = floatByEmployee.get(employeeId);
+    if (!floatRow) {
+      return {
+        active: false,
+        balanceStart: 0,
+        fundingInPeriod: 0,
+        accrualTotal: 0,
+        covered: 0,
+        shortfall: 0,
+      };
+    }
+
+    const txns = txnsByFloat.get(floatRow.id) ?? [];
+    const balanceStart = balanceBefore(txns, period.start);
+    const { accrualTotal, fundingInPeriod } = periodLedgerSummary(txns, period);
+    const coverage = coverageForPeriod({ accrualTotal, balanceStart, fundingInPeriod });
+
+    return {
+      active: true,
+      balanceStart,
+      fundingInPeriod,
+      accrualTotal,
+      covered: coverage.covered,
+      shortfall: coverage.shortfall,
+    };
+  }
+
   const rows: PayrollRow[] = staff.map((employee) => {
     const own = advances.filter(
       (advance) =>
@@ -143,12 +243,15 @@ export async function previewPayroll(
         }
       : EMPTY_SUMMARY;
 
+    const saldo = saldoFor(employee.id);
+
     const computation = computePayslip({
       payType: employee.payType,
       payRate: employee.payRate,
       period,
       joinedAt: employee.joinedAt,
       overtimeMultiplier: settings.overtimeMultiplier,
+      saldoCovered: saldo.covered,
       timeEntries: entries
         .filter((entry) => entry.employeeId === employee.id)
         .map((entry) => ({
@@ -158,6 +261,13 @@ export async function previewPayroll(
           clockOutAt: entry.clockOutAt,
           breakMinutes: entry.breakMinutes,
           overtimeMinutes: entry.overtimeMinutes,
+          transportAmount: entry.transportAmount,
+          rateAt: rateAtDate(
+            rateHistoryByEmployee.get(employee.id) ?? [],
+            entry.workDate,
+            "wage",
+            employee.payRate,
+          ),
         })),
       tasks: tasks
         .filter((task) => task.employeeId === employee.id)
@@ -190,7 +300,7 @@ export async function previewPayroll(
         })),
     });
 
-    return { employee, computation, advanceSummary };
+    return { employee, computation, advanceSummary, saldo };
   });
 
   const totalGross = rows.reduce((sum, row) => sum + row.computation.gross, 0);

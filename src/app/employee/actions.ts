@@ -10,7 +10,7 @@ import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-serv
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { isTaskEditable } from "@/lib/task";
 import { requireEmployee } from "@/lib/session";
-import { localDateString, parseMoneyInput } from "@/lib/format";
+import { localDateString, parseMoneyInput, toNumber } from "@/lib/format";
 
 function fail(path: string, message: string): never {
   redirect(`${path}?err=${encodeURIComponent(message)}`);
@@ -64,6 +64,17 @@ export async function clockInAction(formData: FormData) {
   const lng = numberField(formData, "lng");
   const accuracy = numberField(formData, "accuracy");
   const photo = formData.get("photo");
+  // Ongkos kedatangan boleh diisi karyawan sendiri (mis. beda ongkos kalau naik motor
+  // vs ojek). Kalau field tidak dikirim, pakai tarif default karyawan.
+  const rawTransport = formData.get("transportAmount");
+  const transportAmount = Math.max(
+    0,
+    Math.round(
+      typeof rawTransport === "string" && rawTransport.trim() !== ""
+        ? parseMoneyInput(rawTransport)
+        : toNumber(employee.transportRate),
+    ),
+  );
 
   let withinGeofence: boolean | null = null;
   if (
@@ -90,6 +101,7 @@ export async function clockInAction(formData: FormData) {
       inAccuracyM: accuracy,
       inPhoto: typeof photo === "string" && photo.startsWith("data:image") ? photo : null,
       withinGeofence,
+      transportAmount: transportAmount.toString(),
       source: "pwa",
       status: "pending",
     })
@@ -101,7 +113,7 @@ export async function clockInAction(formData: FormData) {
     entity: "time_entries",
     entityId: entry.id,
     action: "clock_in",
-    diff: { lat, lng, withinGeofence, hasPhoto: Boolean(photo) },
+    diff: { lat, lng, withinGeofence, hasPhoto: Boolean(photo), transportAmount },
   });
 
   revalidatePath("/employee");

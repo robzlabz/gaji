@@ -22,6 +22,14 @@ import {
 } from "@/db/schema";
 import { AccountError, createCredentialUser, setPin } from "@/lib/accounts";
 import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
+import {
+  accrueForEntry,
+  adjustSaldo,
+  reverseAccrual,
+  revertSettlements,
+  settleShortfall,
+  topUpSaldo,
+} from "@/lib/saldo-server";
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { audit } from "@/lib/audit";
 import { previewPayroll, type PayrollRow } from "@/lib/payroll-run";
@@ -145,6 +153,7 @@ export async function createEmployeeAction(formData: FormData) {
   const code = optionalStr(formData, "code");
   const payType = str(formData, "payType");
   const payRate = parseMoneyInput(formData.get("payRate"));
+  const transportRate = Math.max(0, parseMoneyInput(formData.get("transportRate")));
   const joinedAt = str(formData, "joinedAt") || new Date().toISOString().slice(0, 10);
   const createLogin = str(formData, "createLogin") === "on";
 
@@ -176,6 +185,7 @@ export async function createEmployeeAction(formData: FormData) {
       fullName,
       payType,
       payRate: payRate.toString(),
+      transportRate: transportRate.toString(),
       joinedAt,
     })
     .returning();
@@ -189,11 +199,23 @@ export async function createEmployeeAction(formData: FormData) {
 
   await db.insert(payRateHistory).values({
     employeeId: employee.id,
+    kind: "wage",
     payType,
     payRate: payRate.toString(),
     effectiveFrom: joinedAt,
     createdBy: user.id,
   });
+
+  if (transportRate > 0) {
+    await db.insert(payRateHistory).values({
+      employeeId: employee.id,
+      kind: "transport",
+      payType,
+      payRate: transportRate.toString(),
+      effectiveFrom: joinedAt,
+      createdBy: user.id,
+    });
+  }
 
   await audit({
     orgId: org.id,
@@ -201,7 +223,7 @@ export async function createEmployeeAction(formData: FormData) {
     entity: "employees",
     entityId: employee.id,
     action: "create",
-    diff: { fullName, payType, payRate },
+    diff: { fullName, payType, payRate, transportRate },
   });
 
   revalidatePath("/admin/karyawan");
@@ -226,12 +248,24 @@ export async function updateEmployeeAction(formData: FormData) {
   const code = optionalStr(formData, "code");
   const payType = str(formData, "payType") || current.payType;
   const payRate = parseMoneyInput(formData.get("payRate")) || toNumber(current.payRate);
+  const hasTransportField = formData.get("transportRate") !== null;
+  const transportRate = hasTransportField
+    ? Math.max(0, parseMoneyInput(formData.get("transportRate")))
+    : toNumber(current.transportRate);
   const isActive = str(formData, "isActive") === "on";
   const endedAt = optionalStr(formData, "endedAt");
 
   await db
     .update(employees)
-    .set({ fullName, code, payType, payRate: payRate.toString(), isActive, endedAt })
+    .set({
+      fullName,
+      code,
+      payType,
+      payRate: payRate.toString(),
+      transportRate: transportRate.toString(),
+      isActive,
+      endedAt,
+    })
     .where(eq(employees.id, employeeId));
 
   const rateChanged =
@@ -240,8 +274,23 @@ export async function updateEmployeeAction(formData: FormData) {
   if (rateChanged) {
     await db.insert(payRateHistory).values({
       employeeId,
+      kind: "wage",
       payType,
       payRate: payRate.toString(),
+      effectiveFrom: new Date().toISOString().slice(0, 10),
+      createdBy: user.id,
+    });
+  }
+
+  // Tarif ongkos juga punya riwayat: kenaikan tarif tidak boleh mengubah
+  // kedatangan yang sudah lewat (nilai per absensi sudah tersimpan).
+  const transportChanged = transportRate !== toNumber(current.transportRate);
+  if (transportChanged) {
+    await db.insert(payRateHistory).values({
+      employeeId,
+      kind: "transport",
+      payType,
+      payRate: transportRate.toString(),
       effectiveFrom: new Date().toISOString().slice(0, 10),
       createdBy: user.id,
     });
@@ -253,7 +302,7 @@ export async function updateEmployeeAction(formData: FormData) {
     entity: "employees",
     entityId: employeeId,
     action: "update",
-    diff: { payType, payRate, rateChanged },
+    diff: { payType, payRate, rateChanged, transportRate, transportChanged },
   });
 
   revalidatePath(`/admin/karyawan/${employeeId}`);
@@ -529,20 +578,34 @@ export async function decideTimeEntryAction(formData: FormData) {
   const reason = optionalStr(formData, "reason");
   const breakMinutes = Number(str(formData, "breakMinutes"));
   const overtimeMinutes = Number(str(formData, "overtimeMinutes"));
+  const hasTransport = formData.get("transportAmount") !== null;
+  const transportAmount = Math.max(0, parseMoneyInput(formData.get("transportAmount")));
 
   if (!["approve", "reject"].includes(decision)) fail("/admin/absensi", "Aksi tidak dikenal.");
 
-  await db
-    .update(timeEntries)
-    .set({
-      status: decision === "approve" ? "approved" : "rejected",
-      approvedBy: user.id,
-      approvedAt: new Date(),
-      rejectReason: decision === "reject" ? reason : null,
-      ...(Number.isFinite(breakMinutes) && breakMinutes >= 0 ? { breakMinutes } : {}),
-      ...(Number.isFinite(overtimeMinutes) && overtimeMinutes >= 0 ? { overtimeMinutes } : {}),
-    })
-    .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(timeEntries)
+      .set({
+        status: decision === "approve" ? "approved" : "rejected",
+        approvedBy: user.id,
+        approvedAt: new Date(),
+        rejectReason: decision === "reject" ? reason : null,
+        ...(Number.isFinite(breakMinutes) && breakMinutes >= 0 ? { breakMinutes } : {}),
+        ...(Number.isFinite(overtimeMinutes) && overtimeMinutes >= 0 ? { overtimeMinutes } : {}),
+        ...(hasTransport ? { transportAmount: transportAmount.toString() } : {}),
+      })
+      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)));
+
+    // Saldo dipotong di titik ini: hanya absensi yang sudah disetujui yang boleh
+    // mengurangi uang muka. Menolak absensi berarti accrual-nya dibatalkan.
+    if (decision === "approve") {
+      const result = await accrueForEntry(tx, { orgId: org.id, entryId, userId: user.id });
+      if (!result.ok) throw new Error(result.message);
+    } else {
+      await reverseAccrual(tx, entryId);
+    }
+  });
 
   await audit({
     orgId: org.id,
@@ -550,11 +613,177 @@ export async function decideTimeEntryAction(formData: FormData) {
     entity: "time_entries",
     entityId: entryId,
     action: decision,
-    diff: { breakMinutes, overtimeMinutes, reason },
+    diff: { breakMinutes, overtimeMinutes, reason, transportAmount: hasTransport ? transportAmount : null },
   });
 
   revalidatePath("/admin/absensi");
+  revalidatePath("/admin/saldo");
+  revalidatePath("/employee");
+  revalidatePath("/employee/saldo");
   ok("/admin/absensi", decision === "approve" ? "Absensi disetujui." : "Absensi ditolak.");
+}
+
+/**
+ * Koreksi ongkos kedatangan oleh admin.
+ *
+ * Ongkos diisi karyawan sendiri saat clock in, jadi admin harus bisa mengoreksinya —
+ * terutama sebelum absensi di-approve. Kalau absensi sudah approved, accrual saldo
+ * ikut dihitung ulang (bukan ditambah baris baru).
+ */
+export async function setTransportAmountAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const entryId = str(formData, "entryId");
+  const backTo = str(formData, "backTo") || "/admin/absensi";
+  const amount = Math.max(0, parseMoneyInput(formData.get("transportAmount")));
+
+  const [entry] = await db
+    .select()
+    .from(timeEntries)
+    .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)))
+    .limit(1);
+
+  if (!entry) fail(backTo, "Absensi tidak ditemukan.");
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(timeEntries)
+      .set({ transportAmount: amount.toString() })
+      .where(eq(timeEntries.id, entryId));
+
+    if (entry.status === "approved") {
+      const result = await accrueForEntry(tx, { orgId: org.id, entryId, userId: user.id });
+      if (!result.ok) throw new Error(result.message);
+    }
+  });
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "time_entries",
+    entityId: entryId,
+    action: "set_transport",
+    diff: { from: toNumber(entry.transportAmount), to: amount },
+  });
+
+  revalidatePath("/admin/absensi");
+  revalidatePath("/admin/saldo");
+  ok(backTo, "Ongkos kedatangan disimpan.");
+}
+
+/* -------------------------------- saldo ------------------------------- */
+
+/** Owner mengirim uang ke karyawan (menambah saldo). */
+export async function topUpSaldoAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const employeeId = str(formData, "employeeId");
+  const backTo = str(formData, "backTo") || "/admin/saldo";
+  const amount = parseMoneyInput(formData.get("amount"));
+  const occurredAt = str(formData, "occurredAt") || localDateString(new Date(), org.timezone);
+
+  if (!employeeId) fail(backTo, "Pilih karyawan.");
+  if (amount <= 0) fail(backTo, "Nominal top up harus lebih dari 0.");
+
+  await db.transaction(async (tx) => {
+    await topUpSaldo(tx, {
+      orgId: org.id,
+      employeeId,
+      amount,
+      occurredAt,
+      note: optionalStr(formData, "note"),
+      userId: user.id,
+    });
+  });
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "wage_floats",
+    entityId: employeeId,
+    action: "topup",
+    diff: { amount, occurredAt },
+  });
+
+  revalidatePath("/admin/saldo");
+  revalidatePath(`/admin/karyawan/${employeeId}`);
+  revalidatePath("/employee");
+  revalidatePath("/employee/saldo");
+  ok(backTo, "Saldo ditambahkan.");
+}
+
+/** Koreksi manual saldo (boleh minus) — mis. uang dikirim tunai tanpa catatan. */
+export async function adjustSaldoAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const employeeId = str(formData, "employeeId");
+  const backTo = str(formData, "backTo") || "/admin/saldo";
+  const direction = str(formData, "direction") === "out" ? -1 : 1;
+  const nominal = Math.abs(parseMoneyInput(formData.get("amount")));
+  const occurredAt = str(formData, "occurredAt") || localDateString(new Date(), org.timezone);
+
+  if (!employeeId) fail(backTo, "Pilih karyawan.");
+  if (nominal <= 0) fail(backTo, "Nominal koreksi harus lebih dari 0.");
+
+  const amount = direction * nominal;
+
+  await db.transaction(async (tx) => {
+    await adjustSaldo(tx, {
+      orgId: org.id,
+      employeeId,
+      amount,
+      occurredAt,
+      note: optionalStr(formData, "note"),
+      userId: user.id,
+    });
+  });
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "wage_floats",
+    entityId: employeeId,
+    action: "adjust",
+    diff: { amount, occurredAt },
+  });
+
+  revalidatePath("/admin/saldo");
+  revalidatePath(`/admin/karyawan/${employeeId}`);
+  revalidatePath("/employee/saldo");
+  ok(backTo, "Saldo dikoreksi.");
+}
+
+/**
+ * Hitung ulang accrual semua absensi approved milik satu karyawan.
+ * Dipakai setelah top up pertama: absensi yang sudah di-approve sebelum saldo dibuat
+ * belum memotong apa pun.
+ */
+export async function resyncSaldoAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const employeeId = str(formData, "employeeId");
+  const backTo = str(formData, "backTo") || "/admin/saldo";
+
+  const entries = await db
+    .select({ id: timeEntries.id })
+    .from(timeEntries)
+    .where(and(eq(timeEntries.orgId, org.id), eq(timeEntries.employeeId, employeeId), eq(timeEntries.status, "approved")));
+
+  let total = 0;
+  await db.transaction(async (tx) => {
+    for (const entry of entries) {
+      const result = await accrueForEntry(tx, { orgId: org.id, entryId: entry.id, userId: user.id });
+      if (result.ok) total += result.amount;
+    }
+  });
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "wage_floats",
+    entityId: employeeId,
+    action: "resync",
+    diff: { entries: entries.length, total },
+  });
+
+  revalidatePath("/admin/saldo");
+  ok(backTo, `Saldo disinkronkan dari ${entries.length} absensi approved.`);
 }
 
 /* -------------------------------- tugas ------------------------------- */
@@ -810,6 +1039,7 @@ async function writePayrollSlips(
         payRate: row.employee.payRate,
         gross: row.computation.gross.toString(),
         totalDeductions: row.computation.deductions.toString(),
+        saldoCovered: row.saldo.covered.toString(),
         net: row.computation.net.toString(),
         status: "draft",
       })
@@ -853,6 +1083,20 @@ async function writePayrollSlips(
         })
         .where(eq(cashAdvances.id, line.sourceId));
     }
+
+    // Saldo prabayar: kalau saldo tidak cukup menutup upah periode ini, kekurangannya
+    // diserahkan tunai bersama slip dan dicatat sebagai pelunasan supaya saldo
+    // kembali ke 0 (tanpa ini saldo akan minus selamanya).
+    if (row.saldo.active && row.saldo.shortfall > 0) {
+      await settleShortfall(tx, {
+        orgId: input.orgId,
+        employeeId: row.employee.id,
+        payslipId: slip.id,
+        amount: row.saldo.shortfall,
+        occurredAt: input.periodEnd,
+        userId: input.userId,
+      });
+    }
   }
 }
 
@@ -882,6 +1126,9 @@ async function revertPayrollSettlements(tx: Tx, periodId: string) {
       .where(eq(cashAdvances.id, repayment.cashAdvanceId));
     await tx.delete(cashAdvanceTxns).where(eq(cashAdvanceTxns.id, repayment.id));
   }
+
+  // Pelunasan tunai kekurangan saldo ikut dibatalkan: slip akan dihitung ulang.
+  await revertSettlements(tx, slipIds);
 }
 
 /* -------------------------------- cuti -------------------------------- */

@@ -152,6 +152,15 @@ export const employees = pgTable(
     fullName: text("full_name").notNull(),
     payType: text("pay_type").notNull(),
     payRate: numeric("pay_rate", { precision: 14, scale: 2 }).notNull(),
+    /**
+     * Ongkos/transport default per kedatangan (clock in). 0 = tidak ada ongkos.
+     * Nilai ini hanya dipakai untuk *prefill* form clock in; angka yang benar-benar
+     * dibayar disimpan per absensi di `time_entries.transport_amount` supaya tarif
+     * yang berubah tidak mengubah kedatangan yang sudah lewat.
+     */
+    transportRate: numeric("transport_rate", { precision: 14, scale: 2 })
+      .notNull()
+      .default("0"),
     joinedAt: date("joined_at").notNull(),
     endedAt: date("ended_at"),
     isActive: boolean("is_active").notNull().default(true),
@@ -173,13 +182,17 @@ export const payRateHistory = pgTable(
     employeeId: uuid("employee_id")
       .notNull()
       .references(() => employees.id, { onDelete: "cascade" }),
+    /** "wage" = tarif upah, "transport" = tarif ongkos per kedatangan. */
+    kind: text("kind").notNull().default("wage"),
     payType: text("pay_type").notNull(),
     payRate: numeric("pay_rate", { precision: 14, scale: 2 }).notNull(),
     effectiveFrom: date("effective_from").notNull(),
     createdBy: uuid("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("pay_rate_history_emp_idx").on(t.employeeId, t.effectiveFrom)],
+  (t) => [
+    index("pay_rate_history_emp_idx").on(t.employeeId, t.kind, t.effectiveFrom),
+  ],
 );
 
 /* ------------------------------------------------------------------ */
@@ -234,6 +247,14 @@ export const timeEntries = pgTable(
     breakMinutes: integer("break_minutes").notNull().default(0),
     overtimeMinutes: integer("overtime_minutes").notNull().default(0),
     overtimeNote: text("overtime_note"),
+    /**
+     * Ongkos kedatangan untuk absensi ini. Diisi karyawan saat clock in (prefill dari
+     * `employees.transport_rate`), boleh 0, dan boleh dikoreksi admin sampai di-approve.
+     * Disimpan per baris = per kedatangan, jadi clock in dua kali sehari = dua ongkos.
+     */
+    transportAmount: numeric("transport_amount", { precision: 14, scale: 2 })
+      .notNull()
+      .default("0"),
     inLat: doublePrecision("in_lat"),
     inLng: doublePrecision("in_lng"),
     inAccuracyM: real("in_accuracy_m"),
@@ -367,6 +388,83 @@ export const cashAdvancePlans = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Saldo prabayar (upah dibayar di muka, dipotong per kehadiran)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Saldo gaji karyawan ("uang muka" dari owner).
+ *
+ * Bedanya dengan kasbon: kasbon = karyawan **utang** ke owner dan dipotong dari slip.
+ * Saldo = owner sudah **mengirim uang lebih dulu**; setiap kehadiran yang di-approve
+ * memotong saldo ini, sehingga slip bulanan tinggal menampilkan "sudah dibayar via saldo".
+ *
+ * `balance` = cache dari `sum(wage_float_txns.amount)` milik float ini, ditulis di
+ * transaksi yang sama. Boleh minus: minus berarti karyawan sudah bekerja melebihi uang
+ * yang diterima, jadi owner masih kurang bayar.
+ */
+export const wageFloats = pgTable(
+  "wage_floats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    balance: numeric("balance", { precision: 14, scale: 2 }).notNull().default("0"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("wage_floats_emp_uniq").on(t.employeeId)],
+);
+
+/**
+ * Ledger saldo — append-only, `amount` bertanda:
+ * - `topup`   (+): owner kirim uang ke karyawan
+ * - `accrual` (−): upah harian (jam + ongkos) memotong saldo, sumber = time_entries
+ * - `adjust`  (±): koreksi manual admin
+ * - `settle`  (+): pelunasan tunai saat payroll difinalkan ketika saldo sudah minus
+ *
+ * `rate_used` & `minutes` menyimpan kondisi **saat kejadian**, jadi kenaikan tarif
+ * bulan depan tidak mengubah nilai accrual yang sudah tercatat.
+ */
+export const wageFloatTxns = pgTable(
+  "wage_float_txns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    floatId: uuid("float_id")
+      .notNull()
+      .references(() => wageFloats.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    /** Rincian accrual: upah (tanpa ongkos), ongkos, dan menit kerja saat kejadian. */
+    wageAmount: numeric("wage_amount", { precision: 14, scale: 2 }),
+    transportAmount: numeric("transport_amount", { precision: 14, scale: 2 }),
+    minutes: integer("minutes"),
+    rateUsed: numeric("rate_used", { precision: 14, scale: 2 }),
+    occurredAt: date("occurred_at").notNull(),
+    sourceTable: text("source_table"),
+    sourceId: uuid("source_id"),
+    payslipId: uuid("payslip_id").references(() => payslips.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("wage_float_txns_accrual_uniq")
+      .on(t.sourceTable, t.sourceId)
+      .where(sql`kind = 'accrual'`),
+    index("wage_float_txns_float_idx").on(t.floatId, t.occurredAt),
+    index("wage_float_txns_org_date_idx").on(t.orgId, t.occurredAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Cuti (hanya karyawan bulanan)                                       */
 /* ------------------------------------------------------------------ */
 
@@ -450,6 +548,8 @@ export const payslips = pgTable(
     totalDeductions: numeric("total_deductions", { precision: 14, scale: 2 })
       .notNull()
       .default("0"),
+    /** Bagian bruto yang sudah dibayar lewat saldo prabayar (snapshot saat payroll dihitung). */
+    saldoCovered: numeric("saldo_covered", { precision: 14, scale: 2 }).notNull().default("0"),
     net: numeric("net", { precision: 14, scale: 2 }).notNull().default("0"),
     status: text("status").notNull().default("draft"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
@@ -562,3 +662,5 @@ export type PayType = "hourly" | "daily" | "monthly" | "per_task";
 export type LeaveKind = "cuti" | "sakit" | "izin";
 export type LeaveStatus = "pending" | "approved" | "rejected" | "void";
 export type Role = "owner" | "admin" | "employee";
+export type WageFloatTxnKind = "topup" | "accrual" | "adjust" | "settle";
+export type RateHistoryKind = "wage" | "transport";

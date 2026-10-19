@@ -1,7 +1,19 @@
 import { countWorkDays, workDatesBetween, type Period } from "./period";
-import { toNumber } from "./format";
+import { toNumber, rupiah } from "./format";
+import { accrualForEntry } from "./saldo";
 
-export type PayLineKind = "regular" | "overtime" | "task" | "kasbon" | "other";
+export type PayLineKind = "regular" | "overtime" | "task" | "transport" | "kasbon" | "saldo" | "other";
+
+/**
+ * Jenis baris yang mengurangi uang yang diserahkan (bukan menambah bruto).
+ * `saldo` = upah yang sudah dibayar di muka, `kasbon` = utang karyawan.
+ */
+export const DEDUCTION_LINE_KINDS = new Set<string>(["kasbon", "saldo", "deduction"]);
+
+/** true bila baris slip adalah potongan (harus tampil dengan tanda minus). */
+export function isDeductionLine(kind: string): boolean {
+  return DEDUCTION_LINE_KINDS.has(kind);
+}
 
 export type PayLine = {
   kind: PayLineKind;
@@ -30,6 +42,10 @@ export type TimeEntryInput = {
   clockOutAt: Date | string | null;
   breakMinutes: number;
   overtimeMinutes: number;
+  /** Ongkos kedatangan yang tersimpan di baris absensi (0 = tanpa ongkos). */
+  transportAmount?: string | number | null;
+  /** Tarif per jam yang berlaku pada tanggal absensi (riwayat tarif), bila ada. */
+  rateAt?: string | number | null;
 };
 
 export type TaskInput = {
@@ -73,6 +89,12 @@ export type ComputeInput = {
   /** Cuti karyawan (hanya dipakai untuk pay_type monthly). */
   leaves?: LeaveInput[];
   overtimeMultiplier?: number;
+  /**
+   * Bagian bruto periode ini yang sudah dibayar lewat saldo prabayar.
+   * Muncul sebagai baris potongan "Sudah dibayar via saldo", sehingga
+   * `net` = uang tunai yang masih harus diserahkan (0 bila saldo menutup semua).
+   */
+  saldoCovered?: number;
 };
 
 function round2(n: number): number {
@@ -102,37 +124,57 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
   if (input.payType === "hourly") {
     let regularMinutes = 0;
     let overtimeMinutes = 0;
+    let regularWage = 0;
+    let overtimeWage = 0;
+    const ratesUsed = new Set<number>();
 
     for (const entry of input.timeEntries) {
       const minutes = workedMinutes(entry);
       if (minutes <= 0) continue;
-      const overtime = Math.min(minutes, Math.max(0, entry.overtimeMinutes ?? 0));
-      regularMinutes += minutes - overtime;
-      overtimeMinutes += overtime;
+      // Tarif per kedatangan ("tarif saat kejadian") supaya absensi bulan lalu tidak
+      // ikut naik ketika tarif karyawan diubah bulan ini.
+      const entryRate = toNumber(entry.rateAt ?? rate);
+      ratesUsed.add(entryRate);
+      const acc = accrualForEntry({
+        minutes,
+        overtimeMinutes: entry.overtimeMinutes,
+        rate: entryRate,
+        transportAmount: 0,
+        overtimeMultiplier: multiplier,
+      });
+      regularMinutes += acc.regularMinutes;
+      overtimeMinutes += acc.overtimeMinutes;
+      regularWage += acc.regularWage;
+      overtimeWage += acc.overtimeWage;
     }
 
     if (regularMinutes > 0) {
-      const hours = round2(regularMinutes / 60);
       lines.push({
         kind: "regular",
         label: "Gaji pokok (per jam)",
-        qty: hours,
+        qty: round2(regularMinutes / 60),
         unit: "jam",
         unitRate: rate,
-        amount: Math.round((regularMinutes / 60) * rate),
+        amount: regularWage,
+        meta: ratesUsed.size > 1 ? { mixedRates: [...ratesUsed] } : undefined,
       });
     }
 
     if (overtimeMinutes > 0) {
-      const overtimeRate = Math.round(rate * multiplier);
       lines.push({
         kind: "overtime",
         label: "Lembur (catatan manual)",
         qty: round2(overtimeMinutes / 60),
         unit: "jam",
-        unitRate: overtimeRate,
-        amount: Math.round((overtimeMinutes / 60) * overtimeRate),
+        unitRate: Math.round(rate * multiplier),
+        amount: overtimeWage,
       });
+    }
+
+    if (ratesUsed.size > 1) {
+      warnings.push(
+        "Tarif berubah di tengah periode — slip memakai tarif yang berlaku saat masing-masing absensi.",
+      );
     }
   }
 
@@ -220,6 +262,35 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     }
   }
 
+  // Ongkos kedatangan dihitung untuk semua tipe gaji: yang dibayar per kedatangan
+  // adalah kehadirannya, bukan jam kerjanya. Nilainya tersimpan per baris absensi,
+  // jadi tarif ongkos yang berubah tidak mengubah kedatangan yang sudah lewat.
+  const transportEntries = input.timeEntries.filter(
+    (entry) => entry.clockOutAt && Math.round(toNumber(entry.transportAmount)) > 0,
+  );
+  const transportTotal = transportEntries.reduce(
+    (sum, entry) => sum + Math.round(toNumber(entry.transportAmount)),
+    0,
+  );
+
+  if (transportTotal > 0) {
+    lines.push({
+      kind: "transport",
+      label: `Ongkos kedatangan (${transportEntries.length}×)`,
+      qty: transportEntries.length,
+      unit: "kedatangan",
+      unitRate: Math.round(transportTotal / transportEntries.length),
+      amount: transportTotal,
+      meta: {
+        entries: transportEntries.map((entry) => ({
+          id: entry.id,
+          workDate: entry.workDate,
+          amount: Math.round(toNumber(entry.transportAmount)),
+        })),
+      },
+    });
+  }
+
   if (input.payType === "per_task") {
     for (const task of input.tasks) {
       const qty = toNumber(task.qty);
@@ -247,6 +318,24 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
 
   let deferredCount = 0;
 
+  // Upah yang sudah dibayar di muka lewat saldo bukan "potongan" dalam arti utang,
+  // tapi harus dikurangkan dari tunai yang diserahkan saat payroll difinalkan.
+  const saldoCovered = Math.min(gross, Math.max(0, Math.round(toNumber(input.saldoCovered))));
+  if (saldoCovered > 0) {
+    lines.push({
+      kind: "saldo",
+      label: "Sudah dibayar via saldo (uang muka)",
+      qty: 1,
+      unit: "potongan",
+      unitRate: saldoCovered,
+      amount: saldoCovered,
+    });
+    deductions += saldoCovered;
+  }
+
+  // Tunai yang tersedia untuk potongan kasbon = upah yang belum dibayar lewat saldo.
+  let cashLeft = Math.max(0, gross - saldoCovered);
+
   for (const advance of input.advances) {
     const balance = toNumber(advance.balance);
     if (balance <= 0) continue;
@@ -259,8 +348,25 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     const override = toNumber(advance.amountOverride ?? 0);
     const installment = toNumber(advance.installmentAmount);
     const requested = override > 0 ? override : installment > 0 ? installment : balance;
-    const amount = Math.round(Math.min(requested, balance));
-    if (amount <= 0) continue;
+    const wanted = Math.round(Math.min(requested, balance));
+    if (wanted <= 0) continue;
+
+    // Kasbon hanya bisa dipotong dari uang tunai yang benar-benar diserahkan.
+    // Kalau upah periode ini sudah dibayar lewat saldo, tidak ada tunai untuk dipotong —
+    // sisa kasbon tetap jadi utang dan dipotong pada periode berikutnya (bukan net minus).
+    const amount = Math.min(wanted, cashLeft);
+    if (amount <= 0) {
+      warnings.push(
+        `${advance.label ?? "Kasbon"} tidak dipotong: upah periode ini sudah dibayar lewat saldo, jadi tidak ada tunai untuk dipotong. Sisa kasbon tetap jadi utang.`,
+      );
+      continue;
+    }
+    if (amount < wanted) {
+      warnings.push(
+        `${advance.label ?? "Kasbon"} hanya dipotong ${rupiah(amount)} karena upah periode ini sudah dibayar lewat saldo — sisa ${rupiah(wanted - amount)} tetap jadi utang.`,
+      );
+    }
+    cashLeft -= amount;
 
     lines.push({
       kind: "kasbon",

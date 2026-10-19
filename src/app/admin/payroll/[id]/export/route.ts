@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { employees, payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { PAY_TYPE_LABEL, toNumber } from "@/lib/format";
+import { DEDUCTION_LINE_KINDS } from "@/lib/payroll";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ function cell(value: string | number | null | undefined): string {
   return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-const DEDUCTION_KINDS = new Set(["kasbon", "deduction"]);
+const DEDUCTION_KINDS = DEDUCTION_LINE_KINDS;
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { org } = await requireAdmin();

@@ -62,6 +62,12 @@ export default async function NewEmployeePage({
             <FormField label="Tarif (Rp)" hint="per jam / hari / bulan / unit tugas">
               <Input name="payRate" inputMode="numeric" placeholder="25000" required />
             </FormField>
+            <FormField
+              label="Ongkos kedatangan (Rp)"
+              hint="Opsional. Diisi karyawan saat clock in (mis. 10000 untuk yang datang dari jauh). Kosongkan bila tidak ada."
+            >
+              <Input name="transportRate" inputMode="numeric" placeholder="0" />
+            </FormField>
           </CardContent>
         </Card>
 

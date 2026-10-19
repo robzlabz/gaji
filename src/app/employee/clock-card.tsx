@@ -45,7 +45,14 @@ function getPosition(): Promise<GeolocationPosition | null> {
   });
 }
 
-export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
+export function ClockCard({
+  openEntry,
+  transportRate = 0,
+}: {
+  openEntry: OpenEntry | null;
+  /** Ongkos default per kedatangan (Rp). 0 = karyawan ini tidak dapat ongkos. */
+  transportRate?: number;
+}) {
   const [photo, setPhoto] = useState<string>("");
   const [photoSaved, setPhotoSaved] = useState<boolean>(openEntry?.outPhotoSaved ?? false);
   const [coords, setCoords] = useState<Coords | null>(
@@ -119,6 +126,15 @@ export function ClockCard({ openEntry }: { openEntry: OpenEntry | null }) {
       <input type="hidden" name="lng" value={coords?.lng ?? ""} />
       <input type="hidden" name="accuracy" value={coords?.accuracy ?? ""} />
       <input type="hidden" name="photo" value={photo} />
+
+      {!openEntry && transportRate > 0 && (
+        <FormField
+          label="Ongkos kedatangan (Rp)"
+          hint="Sudah terisi tarif kamu. Ubah kalau kali ini beda (mis. tidak jadi naik ojek)."
+        >
+          <Input name="transportAmount" inputMode="numeric" defaultValue={Math.round(transportRate)} />
+        </FormField>
+      )}
 
       {startedAt && (
         <div className="rounded-xl border bg-muted/40 px-3 py-2 text-center">

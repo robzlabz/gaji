@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { cashAdvances, timeEntries, workTasks } from "@/db/schema";
+import { timeEntries } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
+import { estimatePay } from "@/lib/estimate";
 import { ClockCard } from "./clock-card";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
@@ -10,6 +11,7 @@ import { LiveDuration } from "@/components/live-duration";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { statusLabel } from "@/lib/labels";
+import { saldoMessage, saldoTone } from "@/lib/saldo";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   formatDateID,
@@ -21,7 +23,7 @@ import {
   toNumber,
 } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
-import { computePayslip, workedMinutes } from "@/lib/payroll";
+import { workedMinutes } from "@/lib/payroll";
 
 export default async function EmployeeHome({
   searchParams,
@@ -72,55 +74,20 @@ export default async function EmployeeHome({
 
   const todayEntries = periodEntries.filter((entry) => entry.workDate === today);
 
-  // Pakai mesin payroll yang sama dengan slip final supaya estimasi tidak berbeda dari slip.
-  const [approvedTasks, openAdvances] = await Promise.all([
-    db
-      .select()
-      .from(workTasks)
-      .where(
-        and(
-          eq(workTasks.employeeId, employee.id),
-          eq(workTasks.status, "approved"),
-          gte(workTasks.workDate, period.start),
-          lte(workTasks.workDate, period.end),
-        ),
-      ),
-    db
-      .select()
-      .from(cashAdvances)
-      .where(and(eq(cashAdvances.employeeId, employee.id), eq(cashAdvances.status, "approved"))),
-  ]);
-
-  const estimate = computePayslip({
-    payType: employee.payType,
-    payRate: employee.payRate,
+  // Pakai mesin estimasi yang sama dengan slip final & halaman estimasi, supaya angka
+  // di dashboard tidak pernah beda dari slip (termasuk ongkos kedatangan & saldo).
+  const estimate = await estimatePay({
+    orgId: org.id,
+    employee: {
+      id: employee.id,
+      payType: employee.payType,
+      payRate: employee.payRate,
+      joinedAt: employee.joinedAt,
+    },
     period,
-    joinedAt: employee.joinedAt,
     overtimeMultiplier: toNumber(org.overtimeMultiplier),
-    timeEntries: approved.map((entry) => ({
-      id: entry.id,
-      workDate: entry.workDate,
-      clockInAt: entry.clockInAt,
-      clockOutAt: entry.clockOutAt,
-      breakMinutes: entry.breakMinutes,
-      overtimeMinutes: entry.overtimeMinutes,
-    })),
-    tasks: approvedTasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      qty: task.qty,
-      unit: task.unit,
-      unitRate: task.unitRate,
-      workDate: task.workDate,
-    })),
-    advances: openAdvances
-      .filter((advance) => toNumber(advance.balance) > 0)
-      .map((advance) => ({
-        id: advance.id,
-        balance: advance.balance,
-        installmentAmount: advance.installmentAmount,
-      })),
   });
+  const saldo = estimate.saldo;
 
   return (
     <>
@@ -137,6 +104,7 @@ export default async function EmployeeHome({
         </CardHeader>
         <CardContent>
           <ClockCard
+            transportRate={toNumber(employee.transportRate)}
             openEntry={
               openEntry
                 ? {
@@ -162,14 +130,32 @@ export default async function EmployeeHome({
         />
         <StatCard
           label="Estimasi gaji"
-          value={rupiah(estimate.net)}
+          value={rupiah(estimate.approved.net)}
           hint={
-            estimate.deductions > 0
-              ? `bruto ${rupiahShort(estimate.gross)} · potongan ${rupiahShort(estimate.deductions)}`
+            estimate.approved.deductions > 0
+              ? `bruto ${rupiahShort(estimate.approved.gross)} · potongan ${rupiahShort(estimate.approved.deductions)}`
               : "dari absensi & tugas approved"
           }
         />
       </div>
+
+      {saldo.active && (
+        <Link href="/employee/saldo" className="block">
+          <Card className="transition-colors hover:bg-muted/40">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between gap-2 text-base">
+                Saldo saya
+                <StatusBadge tone={saldoTone(saldo.balance)}>
+                  {saldo.balance < 0 ? "minus" : "aktif"}
+                </StatusBadge>
+              </CardTitle>
+              <CardDescription>
+                {saldoMessage(saldo.balance)} Periode ini ditutup saldo {rupiah(saldo.covered)}.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+      )}
 
       <Card>
         <CardHeader>

@@ -2,9 +2,11 @@ import "server-only";
 
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { cashAdvancePlans, cashAdvances, leaves, timeEntries, workTasks } from "@/db/schema";
+import { cashAdvancePlans, cashAdvances, leaves, payRateHistory, timeEntries, workTasks } from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
 import { advanceLabel, isAdvanceEligible, resolveAdvanceDeduction } from "@/lib/kasbon";
+import { rateAtDate } from "@/lib/saldo";
+import { saldoForPeriod } from "@/lib/saldo-server";
 import type { Period } from "@/lib/period";
 import { toNumber } from "@/lib/format";
 
@@ -27,6 +29,8 @@ export type PayEstimate = {
   /** Hitungan bila semua yang menunggu ikut disetujui (selisih = potensi tambahan). */
   potential: PayslipComputation;
   counts: EstimateCounts;
+  /** Saldo prabayar: berapa bagian upah yang sudah dibayar di muka periode ini. */
+  saldo: { active: boolean; covered: number; balance: number };
 };
 
 export type EstimateEmployee = {
@@ -52,7 +56,7 @@ export async function estimatePay(params: {
 }): Promise<PayEstimate> {
   const { orgId, employee, period, overtimeMultiplier } = params;
 
-  const [entries, tasks, advances, plans, leaveRows] = await Promise.all([
+  const [entries, tasks, advances, plans, leaveRows, rateRows, saldo] = await Promise.all([
     db
       .select()
       .from(timeEntries)
@@ -104,6 +108,15 @@ export async function estimatePay(params: {
           gte(leaves.endDate, period.start),
         ),
       ),
+    db
+      .select({
+        kind: payRateHistory.kind,
+        payRate: payRateHistory.payRate,
+        effectiveFrom: payRateHistory.effectiveFrom,
+      })
+      .from(payRateHistory)
+      .where(eq(payRateHistory.employeeId, employee.id)),
+    saldoForPeriod(db, { orgId, employeeId: employee.id, period }),
   ]);
 
   const planByAdvance = new Map(plans.map((plan) => [plan.cashAdvanceId, plan]));
@@ -149,6 +162,8 @@ export async function estimatePay(params: {
           clockOutAt: entry.clockOutAt,
           breakMinutes: entry.breakMinutes,
           overtimeMinutes: entry.overtimeMinutes,
+          transportAmount: entry.transportAmount,
+          rateAt: rateAtDate(rateRows, entry.workDate, "wage", employee.payRate),
         })),
       tasks: tasks
         .filter((task) =>
@@ -166,6 +181,9 @@ export async function estimatePay(params: {
         })),
       advances: advanceInputs,
       leaves: leaveInputs,
+      // Estimasi tetap memakai angka saldo yang benar-benar tercatat (approved saja);
+      // potensi upah dari absensi pending belum memotong saldo sampai di-approve.
+      saldoCovered: saldo.covered,
     });
   }
 
@@ -179,6 +197,11 @@ export async function estimatePay(params: {
       tasksWaiting: tasks.filter((task) => task.status === "done").length,
       tasksUnpriced: tasks.filter((task) => task.status === "requested").length,
       leavesApproved: leaveRows.filter((leave) => leave.status === "approved").length,
+    },
+    saldo: {
+      active: saldo.floatId !== null,
+      covered: saldo.covered,
+      balance: saldo.balanceNow,
     },
   };
 }
