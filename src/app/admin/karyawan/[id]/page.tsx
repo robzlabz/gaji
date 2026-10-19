@@ -15,7 +15,6 @@ import {
 import { requireAdmin } from "@/lib/session";
 import {
   createAdvanceAction,
-  createContractAction,
   resetPinAction,
   updateEmployeeAction,
 } from "../../actions";
@@ -54,13 +53,6 @@ const PAY_TYPE_OPTIONS = [
   { value: "daily", label: "Per hari" },
   { value: "monthly", label: "Per bulan" },
   { value: "per_task", label: "Per tugas" },
-];
-
-const CONTRACT_KIND_OPTIONS = [
-  { value: "pkwt", label: "PKWT" },
-  { value: "probation", label: "Percobaan" },
-  { value: "pkwtt", label: "PKWTT" },
-  { value: "other", label: "Lainnya" },
 ];
 
 /** Tab detail karyawan; urutan ini juga urutan tampil di halaman. */
@@ -407,18 +399,29 @@ export default async function EmployeeDetailPage({
           <CardHeader>
             <CardTitle>Kontrak</CardTitle>
             <CardDescription>
-              Tambah kontrak baru hanya jika tidak ada kontrak aktif. Untuk memperbarui, pakai
-              Perpanjang di halaman Kontrak.
+              Riwayat kontrak karyawan ini. Tambah dan ubah kontrak dilakukan di halaman tersendiri.
             </CardDescription>
             <CardAction>
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/admin/kontrak">Semua kontrak</Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/admin/kontrak">Semua kontrak</Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link
+                    href={`/admin/kontrak/baru?employeeId=${employee.id}&backTo=${encodeURIComponent(tabUrl("kontrak"))}`}
+                  >
+                    Tambah kontrak
+                  </Link>
+                </Button>
+              </div>
             </CardAction>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {contractRows.length === 0 ? (
-              <EmptyState title="Belum ada kontrak" hint="Tambahkan kontrak pertama di bawah." />
+              <EmptyState
+                title="Belum ada kontrak"
+                hint="Buat kontrak pertama lewat tombol Tambah kontrak."
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -428,6 +431,7 @@ export default async function EmployeeDetailPage({
                     <TableHead>Berakhir</TableHead>
                     <TableHead>Tarif</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -450,52 +454,16 @@ export default async function EmployeeDetailPage({
                           {statusLabel(row.status)}
                         </StatusBadge>
                       </TableCell>
+                      <TableCell>
+                        <Button asChild variant="link" size="sm" className="px-0">
+                          <Link href={`/admin/kontrak/${row.id}`}>Ubah</Link>
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             )}
-
-            <Separator />
-
-            <form action={createContractAction} className="flex flex-col gap-3">
-              <input type="hidden" name="employeeId" value={employee.id} />
-              <input type="hidden" name="backTo" value={tabUrl("kontrak")} />
-              <FormField label="Jenis kontrak">
-                <SelectInput name="kind" defaultValue="pkwt">
-                  {CONTRACT_KIND_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </SelectInput>
-              </FormField>
-              <FormField label="Mulai">
-                <Input type="date" name="startDate" defaultValue={today} required />
-              </FormField>
-              <FormField label="Berakhir" hint="Kosongkan untuk PKWTT">
-                <Input type="date" name="endDate" />
-              </FormField>
-              <FormField label="Tipe gaji">
-                <SelectInput name="payType" defaultValue={employee.payType}>
-                  {PAY_TYPE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </SelectInput>
-              </FormField>
-              <FormField label="Tarif kontrak">
-                <Input
-                  name="payRate"
-                  inputMode="numeric"
-                  defaultValue={Math.round(toNumber(employee.payRate))}
-                />
-              </FormField>
-              <div>
-                <Button type="submit">Tambah kontrak</Button>
-              </div>
-            </form>
           </CardContent>
         </Card>
       )}

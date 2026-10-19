@@ -69,6 +69,15 @@ function ok(path: string, message: string): never {
   flash(path, { ok: message });
 }
 
+/**
+ * Path tujuan dari form hanya boleh halaman admin internal.
+ * Mencegah `backTo` diarahkan ke luar aplikasi lewat query string.
+ */
+function adminPath(fd: FormData, key: string, fallback: string): string {
+  const value = str(fd, key);
+  return value === "/admin" || value.startsWith("/admin/") ? value : fallback;
+}
+
 /* ----------------------------- organisasi ----------------------------- */
 
 export async function switchOrgAction(formData: FormData) {
@@ -286,7 +295,9 @@ export async function resetPinAction(formData: FormData) {
 export async function createContractAction(formData: FormData) {
   const { org, user } = await requireAdmin();
   const employeeId = str(formData, "employeeId");
-  const backTo = str(formData, "backTo") || "/admin/kontrak";
+  const backTo = adminPath(formData, "backTo", "/admin/kontrak/baru");
+  // Sukses kembali ke daftar kontrak (atau halaman asal), error tetap di form.
+  const successTo = adminPath(formData, "successTo", "/admin/kontrak");
 
   const [employee] = await db
     .select()
@@ -377,14 +388,118 @@ export async function createContractAction(formData: FormData) {
   });
 
   revalidatePath("/admin/kontrak");
+  revalidatePath(`/admin/kontrak/${contract.id}`);
   revalidatePath(`/admin/karyawan/${employeeId}`);
-  ok(backTo, "Kontrak disimpan.");
+  ok(successTo, "Kontrak disimpan.");
+}
+
+export async function updateContractAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const contractId = str(formData, "contractId");
+  const backTo = adminPath(formData, "backTo", `/admin/kontrak/${contractId}`);
+
+  const [current] = await db
+    .select()
+    .from(contracts)
+    .where(and(eq(contracts.id, contractId), eq(contracts.orgId, org.id)))
+    .limit(1);
+
+  if (!current) fail("/admin/kontrak", "Kontrak tidak ditemukan.");
+
+  const [employee] = await db
+    .select()
+    .from(employees)
+    .where(and(eq(employees.id, current.employeeId), eq(employees.orgId, org.id)))
+    .limit(1);
+
+  if (!employee) fail("/admin/kontrak", "Karyawan kontrak ini tidak ditemukan.");
+
+  const kind = str(formData, "kind") || current.kind;
+  const startDate = str(formData, "startDate") || current.startDate;
+  const endDate = optionalStr(formData, "endDate");
+  const payType = str(formData, "payType") || current.payType;
+  const payRate = parseMoneyInput(formData.get("payRate")) || toNumber(current.payRate);
+  const contractNo = optionalStr(formData, "contractNo");
+  const note = optionalStr(formData, "note");
+
+  if (!["pkwt", "probation", "pkwtt", "other"].includes(kind))
+    fail(backTo, "Jenis kontrak tidak valid.");
+  if (!["hourly", "daily", "monthly", "per_task"].includes(payType))
+    fail(backTo, "Tipe gaji tidak valid.");
+  if (kind !== "pkwtt" && !endDate)
+    fail(backTo, "Kontrak selain PKWTT wajib punya tanggal berakhir.");
+  if (endDate && endDate <= startDate) fail(backTo, "Tanggal berakhir harus setelah tanggal mulai.");
+  if (payRate <= 0) fail(backTo, "Tarif harus lebih dari 0.");
+
+  // Kontrak aktif tidak boleh bertumpuk dengan kontrak aktif lain milik karyawan yang sama.
+  if (current.status === "active") {
+    const others = await db
+      .select({ id: contracts.id, startDate: contracts.startDate, endDate: contracts.endDate })
+      .from(contracts)
+      .where(
+        and(
+          eq(contracts.orgId, org.id),
+          eq(contracts.employeeId, current.employeeId),
+          eq(contracts.status, "active"),
+        ),
+      );
+
+    const newEnd = endDate ?? "9999-12-31";
+    const overlap = others.find(
+      (row) =>
+        row.id !== contractId && row.startDate <= newEnd && startDate <= (row.endDate ?? "9999-12-31"),
+    );
+
+    if (overlap) {
+      fail(
+        backTo,
+        `Periode bertumpuk dengan kontrak aktif lain (${formatDateID(overlap.startDate)} s/d ${overlap.endDate ? formatDateID(overlap.endDate) : "tanpa batas"}).`,
+      );
+    }
+  }
+
+  await db
+    .update(contracts)
+    .set({ kind, contractNo, startDate, endDate, payType, payRate: payRate.toString(), note })
+    .where(and(eq(contracts.id, contractId), eq(contracts.orgId, org.id)));
+
+  // Kontrak aktif yang sudah berlaku menyetir tarif karyawan (payroll membaca employees.pay_rate).
+  const today = localDateString(new Date(), org.timezone);
+  const drivesRate = current.status === "active" && startDate <= today;
+  if (drivesRate && (employee.payType !== payType || toNumber(employee.payRate) !== payRate)) {
+    await db
+      .update(employees)
+      .set({ payType, payRate: payRate.toString() })
+      .where(eq(employees.id, employee.id));
+
+    await db.insert(payRateHistory).values({
+      employeeId: employee.id,
+      payType,
+      payRate: payRate.toString(),
+      effectiveFrom: startDate,
+      createdBy: user.id,
+    });
+  }
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "contracts",
+    entityId: contractId,
+    action: "update",
+    diff: { kind, startDate, endDate, payType, payRate },
+  });
+
+  revalidatePath("/admin/kontrak");
+  revalidatePath(`/admin/kontrak/${contractId}`);
+  revalidatePath(`/admin/karyawan/${current.employeeId}`);
+  ok(backTo, "Kontrak diperbarui.");
 }
 
 export async function terminateContractAction(formData: FormData) {
   const { org, user } = await requireAdmin();
   const contractId = str(formData, "contractId");
-  const backTo = str(formData, "backTo") || "/admin/kontrak";
+  const backTo = adminPath(formData, "backTo", "/admin/kontrak");
 
   await db
     .update(contracts)

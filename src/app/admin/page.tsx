@@ -192,7 +192,7 @@ export default async function AdminDashboard() {
                         </TableCell>
                         <TableCell>
                           <Button asChild variant="link" size="sm" className="px-0">
-                            <Link href={`/admin/kontrak?renew=${row.id}`}>Perpanjang</Link>
+                            <Link href={`/admin/kontrak/baru?renew=${row.id}`}>Perpanjang</Link>
                           </Button>
                         </TableCell>
                       </TableRow>
