@@ -38,6 +38,11 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Warna brand (sama dengan manifest + icon.svg): hijau tua #1f6f5c, krem #faf7f0. */
+  --brand: oklch(0.45 0.075 168);
+  --brand-foreground: oklch(0.98 0.012 95);
+  --brand-soft: oklch(0.95 0.028 168);
+  --brand-soft-foreground: oklch(0.36 0.07 168);
 }
 
 .dark {
@@ -73,6 +78,11 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  /* Di tema gelap brand dibalik: hijau terang + teks gelap agar tetap lolos AA. */
+  --brand: oklch(0.8 0.1 168);
+  --brand-foreground: oklch(0.2 0.03 168);
+  --brand-soft: oklch(0.31 0.045 168);
+  --brand-soft-foreground: oklch(0.87 0.09 168);
 }
 
 @theme inline {
@@ -107,6 +117,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-soft-foreground: var(--brand-soft-foreground);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
