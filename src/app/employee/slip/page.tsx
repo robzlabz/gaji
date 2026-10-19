@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { formatDateID, localDateString, rupiah, toNumber } from "@/lib/format";
+import { isDeductionLine } from "@/lib/payroll";
 import { periodContaining, periodLabel } from "@/lib/period";
 
 export default async function EmployeePayslips() {
@@ -130,7 +131,7 @@ export default async function EmployeePayslips() {
               <ul className="flex flex-col divide-y">
                 {(itemsBySlip.get(slip.id) ?? []).map((item) => (
                   <li key={item.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                    <span className={item.kind === "kasbon" ? "text-destructive" : undefined}>
+                    <span className={isDeductionLine(item.kind) ? "text-destructive" : undefined}>
                       {item.label}
                       <span className="ml-1 text-xs text-muted-foreground">
                         {toNumber(item.qty)} {item.unit}
@@ -138,12 +139,12 @@ export default async function EmployeePayslips() {
                     </span>
                     <span
                       className={
-                        item.kind === "kasbon"
+                        isDeductionLine(item.kind)
                           ? "font-medium tabular-nums text-destructive"
                           : "font-medium tabular-nums"
                       }
                     >
-                      {item.kind === "kasbon" ? "−" : ""}
+                      {isDeductionLine(item.kind) ? "−" : ""}
                       {rupiah(toNumber(item.amount))}
                     </span>
                   </li>

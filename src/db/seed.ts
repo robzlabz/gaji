@@ -1,6 +1,6 @@
 /**
  * Seed demo: 2 tenant, 4 tipe penggajian, kontrak (termasuk yang hampir habis),
- * absensi approved, tugas, dan kasbon.
+ * absensi approved, tugas, kasbon, dan saldo prabayar + ongkos kedatangan.
  *
  * Jalankan: npm run db:seed
  */
@@ -14,12 +14,17 @@ import {
   leaves,
   memberships,
   organizations,
+  payRateHistory,
   timeEntries,
   user,
+  wageFloatTxns,
+  wageFloats,
   workTasks,
 } from "./schema";
 import { auth } from "@/lib/auth";
 import { leaveWorkDays } from "@/lib/leave";
+import { accrualForEntry } from "@/lib/saldo";
+import { workedMinutes } from "@/lib/payroll";
 
 function iso(offsetDays: number): string {
   const d = new Date();
@@ -98,10 +103,11 @@ async function main() {
   await db.insert(memberships).values({ orgId: kopi.id, userId: ownerId, role: "owner" });
 
   const staff = [
-    { name: "Budi Santoso", phone: "628222222222", pin: "222222", payType: "hourly", rate: "30000", code: "KS-001", joined: iso(-120) },
-    { name: "Sari Dewi", phone: "628333333333", pin: "333333", payType: "daily", rate: "175000", code: "KS-002", joined: iso(-90) },
-    { name: "Andi Pratama", phone: "628444444444", pin: "444444", payType: "monthly", rate: "6000000", code: "KS-003", joined: iso(-200) },
-    { name: "Rina Wulandari", phone: "628555555555", pin: "555555", payType: "per_task", rate: "20000", code: "KS-004", joined: iso(-45) },
+    // Budi: per jam + ongkos kedatangan + dibayar pakai saldo (kasus owner di Bantul).
+    { name: "Budi Santoso", phone: "628222222222", pin: "222222", payType: "hourly", rate: "30000", transport: "10000", code: "KS-001", joined: iso(-120) },
+    { name: "Sari Dewi", phone: "628333333333", pin: "333333", payType: "daily", rate: "175000", transport: "0", code: "KS-002", joined: iso(-90) },
+    { name: "Andi Pratama", phone: "628444444444", pin: "444444", payType: "monthly", rate: "6000000", transport: "0", code: "KS-003", joined: iso(-200) },
+    { name: "Rina Wulandari", phone: "628555555555", pin: "555555", payType: "per_task", rate: "20000", transport: "0", code: "KS-004", joined: iso(-45) },
   ];
 
   const created: Record<string, { employeeId: string; userId: string }> = {};
@@ -123,11 +129,28 @@ async function main() {
         fullName: person.name,
         payType: person.payType,
         payRate: person.rate,
+        transportRate: person.transport,
         joinedAt: person.joined,
       })
       .returning();
 
     await db.insert(memberships).values({ orgId: kopi.id, userId, role: "employee" });
+    await db.insert(payRateHistory).values({
+      employeeId: employee.id,
+      kind: "wage",
+      payType: person.payType,
+      payRate: person.rate,
+      effectiveFrom: person.joined,
+    });
+    if (person.transport !== "0") {
+      await db.insert(payRateHistory).values({
+        employeeId: employee.id,
+        kind: "transport",
+        payType: person.payType,
+        payRate: person.transport,
+        effectiveFrom: person.joined,
+      });
+    }
     created[person.name] = { employeeId: employee.id, userId };
   }
 
@@ -239,6 +262,85 @@ async function main() {
       source: "pwa",
     });
   }
+
+  /* ----------------------- saldo + ongkos Budi ---------------------- */
+  // Budi dibayar dengan sistem saldo: owner kirim uang dulu, tiap kehadiran approved
+  // memotong saldo sebesar upah jam + ongkos kedatangan.
+  const budiEntries = await db
+    .select()
+    .from(timeEntries)
+    .where(eq(timeEntries.employeeId, created["Budi Santoso"].employeeId));
+
+  const [budiFloat] = await db
+    .insert(wageFloats)
+    .values({ orgId: kopi.id, employeeId: created["Budi Santoso"].employeeId, balance: "0" })
+    .returning();
+
+  const topUpAmount = 2_400_000;
+  await db.insert(wageFloatTxns).values([
+    {
+      orgId: kopi.id,
+      floatId: budiFloat.id,
+      kind: "topup",
+      amount: "1500000",
+      occurredAt: iso(-10),
+      note: "Transfer BCA — uang muka gaji Budi",
+    },
+    {
+      orgId: kopi.id,
+      floatId: budiFloat.id,
+      kind: "topup",
+      amount: "900000",
+      occurredAt: iso(-4),
+      note: "Transfer BCA — tambahan saldo",
+    },
+  ]);
+
+  let budiBalance = topUpAmount;
+  for (const entry of budiEntries) {
+    if (entry.status !== "approved") continue;
+    const minutes = workedMinutes({
+      id: entry.id,
+      workDate: entry.workDate,
+      clockInAt: entry.clockInAt,
+      clockOutAt: entry.clockOutAt,
+      breakMinutes: entry.breakMinutes,
+      overtimeMinutes: entry.overtimeMinutes,
+    });
+    const breakdown = accrualForEntry({
+      minutes,
+      overtimeMinutes: entry.overtimeMinutes,
+      rate: 30000,
+      transportAmount: 10000,
+      overtimeMultiplier: 1.5,
+    });
+    if (breakdown.total <= 0) continue;
+
+    await db
+      .update(timeEntries)
+      .set({ transportAmount: "10000" })
+      .where(eq(timeEntries.id, entry.id));
+    await db.insert(wageFloatTxns).values({
+      orgId: kopi.id,
+      floatId: budiFloat.id,
+      kind: "accrual",
+      amount: (-breakdown.total).toString(),
+      wageAmount: breakdown.wageAmount.toString(),
+      transportAmount: breakdown.transportAmount.toString(),
+      minutes,
+      rateUsed: "30000",
+      occurredAt: entry.workDate,
+      sourceTable: "time_entries",
+      sourceId: entry.id,
+      note: `Upah ${Math.floor(minutes / 60)}j ${minutes % 60}m + ongkos`,
+    });
+    budiBalance -= breakdown.total;
+  }
+
+  await db
+    .update(wageFloats)
+    .set({ balance: budiBalance.toString() })
+    .where(eq(wageFloats.id, budiFloat.id));
 
   /* ----------------------------- tugas ------------------------------ */
   const taskDays = weekdaysBack(5);

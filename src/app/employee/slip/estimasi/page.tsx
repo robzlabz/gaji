@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { PAY_TYPE_LABEL, localDateString, rupiah, toNumber } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
 import type { PayslipComputation } from "@/lib/payroll";
+import { isDeductionLine } from "@/lib/payroll";
 
 export const metadata = { title: "Estimasi gaji — Gaji" };
 
@@ -20,7 +21,7 @@ function LineList({ computation }: { computation: PayslipComputation }) {
           key={`${line.kind}-${line.sourceId ?? index}`}
           className="flex items-center justify-between gap-3 py-2 text-sm"
         >
-          <span className={line.kind === "kasbon" ? "text-destructive" : undefined}>
+          <span className={isDeductionLine(line.kind) ? "text-destructive" : undefined}>
             {line.label}
             <span className="ml-1 text-xs text-muted-foreground">
               {line.qty} {line.unit}
@@ -28,12 +29,12 @@ function LineList({ computation }: { computation: PayslipComputation }) {
           </span>
           <span
             className={
-              line.kind === "kasbon"
+              isDeductionLine(line.kind)
                 ? "font-medium tabular-nums text-destructive"
                 : "font-medium tabular-nums"
             }
           >
-            {line.kind === "kasbon" ? "−" : ""}
+            {isDeductionLine(line.kind) ? "−" : ""}
             {rupiah(line.amount)}
           </span>
         </li>

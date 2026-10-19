@@ -23,6 +23,7 @@ import {
 } from "../../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
+import { SaldoPanel } from "@/app/admin/saldo/saldo-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { TabNav, type TabNavItem } from "@/components/tab-nav";
 import { statusLabel } from "@/lib/labels";
@@ -62,6 +63,7 @@ const PAY_TYPE_OPTIONS = [
 /** Tab detail karyawan; urutan ini juga urutan tampil di halaman. */
 const TABS = [
   { key: "akun", label: "Akun login" },
+  { key: "saldo", label: "Saldo" },
   { key: "kasbon", label: "Kasbon" },
   { key: "kontrak", label: "Kontrak" },
   { key: "absensi", label: "Absensi" },
@@ -242,6 +244,16 @@ export default async function EmployeeDetailPage({
                 defaultValue={Math.round(toNumber(employee.payRate))}
               />
             </FormField>
+            <FormField
+              label="Ongkos kedatangan (Rp)"
+              hint="Diisi karyawan saat clock in; 0 = tidak ada ongkos. Perubahan tidak mengubah kedatangan yang sudah lewat."
+            >
+              <Input
+                name="transportRate"
+                inputMode="numeric"
+                defaultValue={Math.round(toNumber(employee.transportRate))}
+              />
+            </FormField>
             <FormField label="Tanggal berhenti" hint="Kosongkan bila masih aktif">
               <Input type="date" name="endedAt" defaultValue={employee.endedAt ?? ""} />
             </FormField>
@@ -259,7 +271,8 @@ export default async function EmployeeDetailPage({
                 <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
                   {rateRows.slice(0, 5).map((row) => (
                     <li key={row.id}>
-                      {formatDateID(row.effectiveFrom)} — {PAY_TYPE_LABEL[row.payType]}{" "}
+                      {formatDateID(row.effectiveFrom)} —{" "}
+                      {row.kind === "transport" ? "ongkos kedatangan" : PAY_TYPE_LABEL[row.payType]}{" "}
                       {rupiah(toNumber(row.payRate))}
                     </li>
                   ))}
@@ -319,6 +332,10 @@ export default async function EmployeeDetailPage({
             )}
           </CardContent>
         </Card>
+      )}
+
+      {tab === "saldo" && (
+        <SaldoPanel employeeId={employee.id} backTo={tabUrl("saldo")} compact />
       )}
 
       {tab === "kasbon" && (

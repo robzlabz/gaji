@@ -16,8 +16,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PAY_TYPE_LABEL, formatDateID, formatDateTimeID, rupiah, toNumber } from "@/lib/format";
+import { DEDUCTION_LINE_KINDS } from "@/lib/payroll";
 
-const DEDUCTION_KINDS = new Set(["kasbon", "deduction"]);
+const DEDUCTION_KINDS = DEDUCTION_LINE_KINDS;
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",

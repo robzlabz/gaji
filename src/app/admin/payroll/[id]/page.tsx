@@ -21,6 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PAY_TYPE_LABEL, formatDateID, rupiah, toNumber } from "@/lib/format";
+import { isDeductionLine } from "@/lib/payroll";
 import { periodLabel } from "@/lib/period";
 
 export default async function PayrollDetailPage({
@@ -51,6 +52,7 @@ export default async function PayrollDetailPage({
       payRate: payslips.payRate,
       gross: payslips.gross,
       totalDeductions: payslips.totalDeductions,
+      saldoCovered: payslips.saldoCovered,
       net: payslips.net,
       status: payslips.status,
     })
@@ -75,6 +77,7 @@ export default async function PayrollDetailPage({
   const totalGross = slips.reduce((sum, slip) => sum + toNumber(slip.gross), 0);
   const totalDeductions = slips.reduce((sum, slip) => sum + toNumber(slip.totalDeductions), 0);
   const totalNet = slips.reduce((sum, slip) => sum + toNumber(slip.net), 0);
+  const totalSaldo = slips.reduce((sum, slip) => sum + toNumber(slip.saldoCovered), 0);
 
   return (
     <>
@@ -169,6 +172,19 @@ export default async function PayrollDetailPage({
         <StatCard label="Total net" value={rupiah(totalNet)} hint="yang dibayarkan" />
       </div>
 
+      {totalSaldo > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Dibayar lewat saldo</CardTitle>
+            <CardDescription>
+              {rupiah(totalSaldo)} dari bruto periode ini sudah dibayar di muka lewat saldo, jadi
+              tidak perlu diserahkan lagi. Angka &quot;net&quot; di bawah adalah uang tunai yang masih
+              harus dibayar — kalau saldo tidak cukup, selisihnya otomatis masuk ke net.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
       {slips.length === 0 ? (
         <Card>
           <CardHeader>
@@ -207,6 +223,11 @@ export default async function PayrollDetailPage({
                         bruto {rupiah(toNumber(slip.gross))} · potongan{" "}
                         {rupiah(toNumber(slip.totalDeductions))}
                       </p>
+                      {toNumber(slip.saldoCovered) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          termasuk saldo {rupiah(toNumber(slip.saldoCovered))}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -224,7 +245,7 @@ export default async function PayrollDetailPage({
                       {slipItems.map((item) => (
                         <TableRow key={item.id}>
                           <TableCell
-                            className={item.kind === "kasbon" ? "text-destructive" : undefined}
+                            className={isDeductionLine(item.kind) ? "text-destructive" : undefined}
                           >
                             {item.label}
                           </TableCell>
@@ -236,12 +257,12 @@ export default async function PayrollDetailPage({
                           </TableCell>
                           <TableCell
                             className={
-                              item.kind === "kasbon"
+                              isDeductionLine(item.kind)
                                 ? "text-right font-medium tabular-nums text-destructive"
                                 : "text-right font-medium tabular-nums"
                             }
                           >
-                            {item.kind === "kasbon" ? "−" : ""}
+                            {isDeductionLine(item.kind) ? "−" : ""}
                             {rupiah(toNumber(item.amount))}
                           </TableCell>
                         </TableRow>

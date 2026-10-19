@@ -3,7 +3,7 @@ import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, timeEntries } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { decideTimeEntryAction } from "../actions";
+import { decideTimeEntryAction, setTransportAmountAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -12,7 +12,7 @@ import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { formatDateID, formatTimeID, localDateString, minutesToHoursLabel } from "@/lib/format";
+import { formatDateID, formatTimeID, localDateString, minutesToHoursLabel, rupiah, toNumber } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
 import { workedMinutes } from "@/lib/payroll";
 
@@ -37,6 +37,7 @@ export default async function AttendancePage({
       breakMinutes: timeEntries.breakMinutes,
       overtimeMinutes: timeEntries.overtimeMinutes,
       overtimeNote: timeEntries.overtimeNote,
+      transportAmount: timeEntries.transportAmount,
       status: timeEntries.status,
       source: timeEntries.source,
       inPhoto: timeEntries.inPhoto,
@@ -47,6 +48,7 @@ export default async function AttendancePage({
       employeeId: employees.id,
       employeeName: employees.fullName,
       payType: employees.payType,
+      transportRate: employees.transportRate,
     })
     .from(timeEntries)
     .innerJoin(employees, eq(timeEntries.employeeId, employees.id))
@@ -195,6 +197,20 @@ export default async function AttendancePage({
                         <FormField label="Catatan lembur / alasan">
                           <Input name="reason" placeholder="opsional" />
                         </FormField>
+                        <FormField
+                          label="Ongkos kedatangan (Rp)"
+                          hint={
+                            toNumber(row.transportRate) > 0
+                              ? `Tarif karyawan ${rupiah(toNumber(row.transportRate))}/kedatangan — boleh dikoreksi`
+                              : "Kosongkan bila tidak ada ongkos"
+                          }
+                        >
+                          <Input
+                            name="transportAmount"
+                            inputMode="numeric"
+                            defaultValue={Math.round(toNumber(row.transportAmount))}
+                          />
+                        </FormField>
                         <div className="flex gap-2">
                           <Button type="submit" name="decision" value="approve">
                             Setujui
@@ -211,6 +227,33 @@ export default async function AttendancePage({
                         Istirahat {row.breakMinutes} menit · lembur {row.overtimeMinutes} menit
                         {row.overtimeNote ? ` (${row.overtimeNote})` : ""}
                       </p>
+                    )}
+
+                    {row.status === "approved" && (
+                      <form
+                        action={setTransportAmountAction}
+                        className="mt-2 flex flex-wrap items-end gap-2"
+                      >
+                        <input type="hidden" name="entryId" value={row.id} />
+                        <input
+                          type="hidden"
+                          name="backTo"
+                          value={`/admin/absensi?status=${statusFilter}`}
+                        />
+                        <FormField label="Ongkos kedatangan (Rp)" className="w-40">
+                          <Input
+                            name="transportAmount"
+                            inputMode="numeric"
+                            defaultValue={Math.round(toNumber(row.transportAmount))}
+                          />
+                        </FormField>
+                        <Button type="submit" variant="outline" size="sm">
+                          Simpan ongkos
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          Saldo ikut disesuaikan bila karyawan pakai saldo.
+                        </span>
+                      </form>
                     )}
                   </div>
                 );

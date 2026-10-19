@@ -8,6 +8,7 @@ import {
   CalendarClockIcon,
   CalendarOffIcon,
   ClipboardCheckIcon,
+  CoinsIcon,
   FileTextIcon,
   HistoryIcon,
   LayoutDashboardIcon,
@@ -42,6 +43,7 @@ const adminItems: NavItem[] = [
   { href: "/admin/cuti", label: "Cuti", icon: CalendarOffIcon },
   { href: "/admin/tugas", label: "Tugas", icon: ClipboardCheckIcon },
   { href: "/admin/kasbon", label: "Kasbon", icon: WalletIcon },
+  { href: "/admin/saldo", label: "Saldo", icon: CoinsIcon },
   { href: "/admin/payroll", label: "Payroll", icon: BanknoteIcon },
   { href: "/admin/pengaturan", label: "Pengaturan", icon: SettingsIcon },
   { href: "/admin/mcp", label: "MCP", icon: PlugIcon },
@@ -62,6 +64,7 @@ const employeeItems: NavItem[] = [
   { href: "/employee/tugas", label: "Tugas", icon: ClipboardCheckIcon },
   { href: "/employee/cuti", label: "Cuti", icon: CalendarOffIcon },
   { href: "/employee/kasbon", label: "Kasbon", icon: WalletIcon },
+  { href: "/employee/saldo", label: "Saldo", icon: CoinsIcon },
   { href: "/employee/slip", label: "Slip", icon: ReceiptTextIcon },
 ];
 
