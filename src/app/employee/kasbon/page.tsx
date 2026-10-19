@@ -1,17 +1,16 @@
+import Link from "next/link";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { cashAdvances } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
-import { setMyAdvancePlanAction, requestAdvanceAction } from "../actions";
+import { setMyAdvancePlanAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { statusLabel } from "@/lib/labels";
-import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { KasbonPlanList } from "@/components/kasbon-plan-list";
 import { formatDateID, rupiah, toNumber } from "@/lib/format";
 import { periodLabel } from "@/lib/period";
@@ -30,7 +29,7 @@ export default async function EmployeeAdvances({
   const rows = await db
     .select()
     .from(cashAdvances)
-    .where(and(eq(cashAdvances.employeeId, employee.id)))
+    .where(and(eq(cashAdvances.orgId, org.id), eq(cashAdvances.employeeId, employee.id)))
     .orderBy(desc(cashAdvances.requestedAt));
 
   const outstanding = rows
@@ -56,6 +55,10 @@ export default async function EmployeeAdvances({
       <Flash ok={ok} err={err} />
 
       <StatCard label="Sisa kasbon" value={rupiah(outstanding)} hint="belum dipotong ke gaji" />
+
+      <Button asChild className="w-full">
+        <Link href="/employee/kasbon/baru">+ Ajukan kasbon</Link>
+      </Button>
 
       <Card>
         <CardHeader>
@@ -95,26 +98,6 @@ export default async function EmployeeAdvances({
 
       <Card>
         <CardHeader>
-          <CardTitle>Ajukan kasbon</CardTitle>
-          <CardDescription>Admin akan meninjau pengajuanmu.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={requestAdvanceAction} className="flex flex-col gap-3">
-            <FormField label="Nominal (Rp)">
-              <Input name="principal" inputMode="numeric" placeholder="500000" required />
-            </FormField>
-            <FormField label="Keterangan / catatan" hint="Opsional">
-              <Input name="note" placeholder="biaya sekolah anak" />
-            </FormField>
-            <Button type="submit" className="w-full">
-              Kirim pengajuan
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Riwayat kasbon</CardTitle>
           <CardDescription>{rows.length} pengajuan</CardDescription>
         </CardHeader>
@@ -133,8 +116,16 @@ export default async function EmployeeAdvances({
                       {formatDateID(row.requestedAt)}
                       {row.installmentAmount
                         ? ` · cicilan ${rupiah(toNumber(row.installmentAmount))}`
-                        : ""}
+                        : " · bayar langsung"}
                     </p>
+                    {row.note ? (
+                      <p className="text-xs text-muted-foreground">{row.note}</p>
+                    ) : null}
+                    {row.status === "pending" ? (
+                      <Button asChild variant="outline" size="sm" className="mt-2">
+                        <Link href={`/employee/kasbon/${row.id}`}>Ubah</Link>
+                      </Button>
+                    ) : null}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <p className="text-xs tabular-nums text-muted-foreground">

@@ -8,6 +8,7 @@ import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { statusLabel } from "@/lib/labels";
+import { taskStatusTone } from "@/lib/task";
 import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +47,7 @@ export default async function TasksPage({
         unitRate: workTasks.unitRate,
         status: workTasks.status,
         workDate: workTasks.workDate,
+        description: workTasks.description,
         employeeId: workTasks.employeeId,
         employeeName: employees.fullName,
       })
@@ -56,6 +58,7 @@ export default async function TasksPage({
       .limit(100),
   ]);
 
+  const requested = tasks.filter((task) => task.status === "requested");
   const pending = tasks.filter((task) => task.status === "done" || task.status === "open");
 
   return (
@@ -110,6 +113,62 @@ export default async function TasksPage({
           </form>
         </CardContent>
       </Card>
+
+      {requested.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Menunggu harga</CardTitle>
+            <CardDescription>
+              Pengajuan tugas dari karyawan. Isi tarif per satuan lalu setujui — hanya tugas
+              approved yang masuk payroll.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {requested.map((task) => (
+              <form
+                key={task.id}
+                action={decideTaskAction}
+                className="flex flex-col gap-2 rounded-xl border px-3 py-2"
+              >
+                <input type="hidden" name="taskId" value={task.id} />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{task.title}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {task.employeeName ?? "belum ada karyawan"} · {toNumber(task.qty)}{" "}
+                    {task.unit} · {formatDateID(task.workDate)}
+                  </p>
+                  {task.description ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{task.description}</p>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                    Harga per {task.unit} (Rp)
+                    <Input
+                      name="unitRate"
+                      inputMode="numeric"
+                      placeholder="15000"
+                      className="w-32"
+                    />
+                  </label>
+                  <Button type="submit" name="decision" value="approve" size="sm">
+                    Setujui
+                  </Button>
+                  <Button
+                    type="submit"
+                    name="decision"
+                    value="reject"
+                    variant="destructive"
+                    size="sm"
+                  >
+                    Tolak
+                  </Button>
+                </div>
+              </form>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {pending.length > 0 && (
         <Card>
@@ -190,23 +249,17 @@ export default async function TasksPage({
                       {toNumber(task.qty)} {task.unit}
                     </TableCell>
                     <TableCell className="tabular-nums">
-                      {rupiah(toNumber(task.qty) * toNumber(task.unitRate))}
+                      {toNumber(task.unitRate) > 0 ? (
+                        rupiah(toNumber(task.qty) * toNumber(task.unitRate))
+                      ) : (
+                        <span className="text-muted-foreground">belum diisi</span>
+                      )}
                     </TableCell>
                     <TableCell className="tabular-nums text-muted-foreground">
                       {formatDateID(task.workDate)}
                     </TableCell>
                     <TableCell>
-                      <StatusBadge
-                        tone={
-                          task.status === "approved"
-                            ? "good"
-                            : task.status === "rejected"
-                              ? "bad"
-                              : task.status === "done"
-                                ? "warn"
-                                : "default"
-                        }
-                      >
+                      <StatusBadge tone={taskStatusTone(task.status)}>
                         {statusLabel(task.status)}
                       </StatusBadge>
                     </TableCell>
