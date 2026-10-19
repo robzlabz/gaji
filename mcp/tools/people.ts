@@ -14,6 +14,7 @@ import {
   todayIn,
   toolResult,
 } from "../core";
+import { currentOrgScope } from "../scope";
 
 const ORG_ARG = {
   org: z.string().optional().describe("Slug/nama/id organisasi. Kosongkan bila hanya ada satu tenant."),
@@ -31,6 +32,8 @@ export function registerPeopleTools(server: McpServer) {
       annotations: { readOnlyHint: true },
     },
     async () => {
+      // Request HTTP memakai API key yang terikat satu tenant: jangan bocorkan tenant lain.
+      const scope = currentOrgScope();
       const orgs = await query<{
         id: string;
         name: string;
@@ -47,7 +50,9 @@ export function registerPeopleTools(server: McpServer) {
                 (select coalesce(sum(ps.net), 0)::float8
                    from payslips ps where ps.org_id = o.id and ps.status = 'paid') as monthly_payroll_net
            from organizations o
+          ${scope ? "where o.id = $1" : ""}
           order by o.name`,
+        scope ? [scope.orgId] : [],
       );
 
       return toolResult({

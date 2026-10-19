@@ -14,6 +14,7 @@ import { config as loadDotenv } from "dotenv";
 import postgres from "postgres";
 import { addDays, localDateString } from "../src/lib/format";
 import { periodContaining, shiftPeriod, type Period } from "../src/lib/period";
+import { currentOrgScope } from "./scope";
 
 /* ------------------------------------------------------------------ */
 /* Env                                                                 */
@@ -119,6 +120,16 @@ const ORG_COLUMNS = `id, name, slug, timezone, pay_period_start_day, working_day
   overtime_multiplier, contract_alert_days`;
 
 export async function listOrgs(): Promise<Org[]> {
+  // Request MCP yang membawa API key terikat ke satu tenant: hanya org itu yang terlihat.
+  const scope = currentOrgScope();
+  if (scope) {
+    const rows = await query<OrgRow>(
+      `select ${ORG_COLUMNS} from organizations where id = $1`,
+      [scope.orgId],
+    );
+    return rows.map(toOrg);
+  }
+
   const rows = await query<OrgRow>(`select ${ORG_COLUMNS} from organizations order by name`);
   return rows.map(toOrg);
 }
@@ -130,8 +141,20 @@ export async function listOrgs(): Promise<Org[]> {
  */
 export async function resolveOrg(ref?: string | null): Promise<Org> {
   const orgs = await listOrgs();
+  const scope = currentOrgScope();
 
   if (orgs.length === 0) throw new Error("Belum ada organisasi di database ini.");
+  if (scope && ref) {
+    const needle = ref.trim().toLowerCase();
+    const allowed = orgs.some(
+      (o) => o.id === ref.trim() || o.slug.toLowerCase() === needle || o.name.toLowerCase() === needle,
+    );
+    if (!allowed) {
+      throw new Error(
+        `API key ini hanya untuk organisasi "${orgs[0].slug}". Argumen org lain ditolak.`,
+      );
+    }
+  }
   if (!ref) {
     if (orgs.length === 1) return orgs[0];
     throw new Error(

@@ -15,6 +15,13 @@
       "when": 1792391705020,
       "tag": "0001_famous_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792416346768,
+      "tag": "0002_modern_mentallo",
+      "breakpoints": true
     }
   ]
 }
