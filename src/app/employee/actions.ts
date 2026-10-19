@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
@@ -8,6 +8,7 @@ import { cashAdvances, leaves, timeEntries, workTasks } from "@/db/schema";
 import { audit } from "@/lib/audit";
 import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
+import { isTaskEditable } from "@/lib/task";
 import { requireEmployee } from "@/lib/session";
 import { localDateString, parseMoneyInput } from "@/lib/format";
 
@@ -250,13 +251,141 @@ export async function markTaskDoneAction(formData: FormData) {
   ok("/employee/tugas", "Tugas ditandai selesai, menunggu approval.");
 }
 
+const TASK_LIST = "/employee/tugas";
+
+/**
+ * Karyawan mengajukan tugas sendiri. Harga sengaja dikosongkan (0) dan statusnya
+ * `requested`: admin yang mengisi tarif sekaligus menyetujuinya, jadi pengajuan
+ * tidak pernah langsung masuk payroll.
+ */
+export async function submitTaskAction(formData: FormData) {
+  const { org, employee } = await requireEmployee();
+  const formPath = `${TASK_LIST}/baru`;
+
+  const title = str(formData, "title");
+  if (!title) fail(formPath, "Judul tugas wajib diisi.");
+
+  const qty = numberField(formData, "qty");
+  if (qty === null || qty <= 0) fail(formPath, "Jumlah harus lebih dari 0.");
+
+  const workDate = dateField(formData, "workDate") ?? localDateString(new Date(), org.timezone);
+
+  const [task] = await db
+    .insert(workTasks)
+    .values({
+      orgId: org.id,
+      employeeId: employee.id,
+      title,
+      description: str(formData, "description") || null,
+      qty: qty.toString(),
+      unit: str(formData, "unit") || "tugas",
+      // Harga diisi admin saat approval.
+      unitRate: "0",
+      workDate,
+      status: "requested",
+    })
+    .returning();
+
+  await audit({
+    orgId: org.id,
+    actorId: employee.userId,
+    entity: "work_tasks",
+    entityId: task.id,
+    action: "request",
+    diff: { title, qty, workDate },
+  });
+
+  revalidatePath(TASK_LIST);
+  revalidatePath("/admin/tugas");
+  ok(TASK_LIST, "Pengajuan tugas terkirim. Admin akan mengisi harga dan menyetujuinya.");
+}
+
+/** Karyawan memperbaiki tugas yang belum diputuskan admin. */
+export async function updateTaskAction(formData: FormData) {
+  const { org, employee } = await requireEmployee();
+  const taskId = str(formData, "taskId");
+  const editPath = `${TASK_LIST}/${taskId}`;
+
+  const [task] = await db
+    .select()
+    .from(workTasks)
+    .where(
+      and(
+        eq(workTasks.id, taskId),
+        eq(workTasks.orgId, org.id),
+        eq(workTasks.employeeId, employee.id),
+      ),
+    )
+    .limit(1);
+
+  if (!task) fail(TASK_LIST, "Tugas tidak ditemukan.");
+  if (!isTaskEditable(task.status)) {
+    fail(TASK_LIST, "Tugas yang sudah diputuskan admin tidak bisa diubah.");
+  }
+
+  const title = str(formData, "title");
+  if (!title) fail(editPath, "Judul tugas wajib diisi.");
+
+  const qty = numberField(formData, "qty");
+  if (qty === null || qty <= 0) fail(editPath, "Jumlah harus lebih dari 0.");
+
+  const workDate = dateField(formData, "workDate") ?? task.workDate;
+
+  await db
+    .update(workTasks)
+    .set({
+      title,
+      description: str(formData, "description") || null,
+      qty: qty.toString(),
+      unit: str(formData, "unit") || "tugas",
+      workDate,
+    })
+    .where(eq(workTasks.id, task.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: employee.userId,
+    entity: "work_tasks",
+    entityId: task.id,
+    action: "update",
+    diff: { title, qty, workDate },
+  });
+
+  revalidatePath(TASK_LIST);
+  revalidatePath("/admin/tugas");
+  ok(TASK_LIST, "Tugas diperbarui.");
+}
+
+const ADVANCE_LIST = "/employee/kasbon";
+
+/**
+ * Baca pilihan cara bayar dari form kasbon.
+ * Checkbox "cicil" dicentang = dicicil per periode, tidak dicentang = bayar langsung (potong penuh).
+ */
+function advanceInstallment(formData: FormData, principal: number): number {
+  const cicil = formData.get("cicil") !== null;
+  if (!cicil) return 0;
+  const amount = parseMoneyInput(formData.get("installmentAmount"));
+  if (amount <= 0) {
+    fail(`${ADVANCE_LIST}/baru`, "Isi nominal cicilan per periode, atau pilih bayar langsung.");
+  }
+  if (amount > principal) {
+    fail(`${ADVANCE_LIST}/baru`, "Cicilan tidak boleh melebihi pokok kasbon.");
+  }
+  return amount;
+}
+
 export async function requestAdvanceAction(formData: FormData) {
   const { org, employee } = await requireEmployee();
   const principal = parseMoneyInput(formData.get("principal"));
   const note = formData.get("note");
 
-  if (principal <= 0) fail("/employee/kasbon", "Nominal kasbon harus lebih dari 0.");
-  if (principal > 50_000_000) fail("/employee/kasbon", "Nominal terlalu besar, hubungi admin.");
+  if (principal <= 0) fail(`${ADVANCE_LIST}/baru`, "Nominal kasbon harus lebih dari 0.");
+  if (principal > 50_000_000) {
+    fail(`${ADVANCE_LIST}/baru`, "Nominal terlalu besar, hubungi admin.");
+  }
+
+  const installment = advanceInstallment(formData, principal);
 
   const [advance] = await db
     .insert(cashAdvances)
@@ -265,6 +394,7 @@ export async function requestAdvanceAction(formData: FormData) {
       employeeId: employee.id,
       principal: principal.toString(),
       balance: principal.toString(),
+      installmentAmount: installment > 0 ? installment.toString() : null,
       requestedAt: localDateString(new Date(), org.timezone),
       status: "pending",
       note: typeof note === "string" && note.trim() !== "" ? note.trim() : null,
@@ -277,11 +407,71 @@ export async function requestAdvanceAction(formData: FormData) {
     entity: "cash_advances",
     entityId: advance.id,
     action: "request",
-    diff: { principal },
+    diff: { principal, installment },
   });
 
-  revalidatePath("/employee/kasbon");
-  ok("/employee/kasbon", "Pengajuan kasbon dikirim ke admin.");
+  revalidatePath(ADVANCE_LIST);
+  revalidatePath("/admin/kasbon");
+  ok(
+    ADVANCE_LIST,
+    installment > 0
+      ? `Pengajuan kasbon dikirim — dicicil ${installment.toLocaleString("id-ID")} per periode.`
+      : "Pengajuan kasbon dikirim — dibayar langsung (potong penuh sekali).",
+  );
+}
+
+/** Karyawan memperbaiki pengajuannya sendiri selama admin belum memutuskan. */
+export async function updateAdvanceRequestAction(formData: FormData) {
+  const { org, employee } = await requireEmployee();
+  const advanceId = str(formData, "advanceId");
+
+  const [advance] = await db
+    .select()
+    .from(cashAdvances)
+    .where(
+      and(
+        eq(cashAdvances.id, advanceId),
+        eq(cashAdvances.orgId, org.id),
+        eq(cashAdvances.employeeId, employee.id),
+      ),
+    )
+    .limit(1);
+
+  if (!advance) fail(ADVANCE_LIST, "Kasbon tidak ditemukan.");
+  if (advance.status !== "pending") {
+    fail(`${ADVANCE_LIST}/${advance.id}`, "Kasbon yang sudah diputuskan admin tidak bisa diubah.");
+  }
+
+  const principal = parseMoneyInput(formData.get("principal"));
+  if (principal <= 0) fail(`${ADVANCE_LIST}/${advance.id}`, "Nominal kasbon harus lebih dari 0.");
+  if (principal > 50_000_000) {
+    fail(`${ADVANCE_LIST}/${advance.id}`, "Nominal terlalu besar, hubungi admin.");
+  }
+
+  const installment = advanceInstallment(formData, principal);
+
+  await db
+    .update(cashAdvances)
+    .set({
+      principal: principal.toString(),
+      balance: principal.toString(),
+      installmentAmount: installment > 0 ? installment.toString() : null,
+      note: str(formData, "note") || null,
+    })
+    .where(eq(cashAdvances.id, advance.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: employee.userId,
+    entity: "cash_advances",
+    entityId: advance.id,
+    action: "update_request",
+    diff: { principal, installment },
+  });
+
+  revalidatePath(ADVANCE_LIST);
+  revalidatePath("/admin/kasbon");
+  ok(ADVANCE_LIST, "Pengajuan kasbon diperbarui.");
 }
 
 /**
@@ -351,39 +541,63 @@ function dateField(fd: FormData, key: string): string | null {
   return parsed.toISOString().slice(0, 10) === value ? value : null;
 }
 
-export async function requestLeaveAction(formData: FormData) {
-  const { org, employee } = await requireEmployee();
-  const path = "/employee/cuti";
+const LEAVE_LIST = "/employee/cuti";
 
-  // Cuti hanya masuk akal untuk gaji bulanan: tipe lain dibayar dari kehadiran/tugas.
-  if (employee.payType !== "monthly") {
-    fail(path, "Cuti hanya berlaku untuk karyawan bulanan.");
-  }
-
+/**
+ * Validasi isi form cuti (dipakai pengajuan baru & perubahan).
+ * `ignoreId` = pengajuan yang sedang diubah, supaya tidak dianggap bentrok dengan dirinya sendiri.
+ */
+async function validateLeave(
+  formData: FormData,
+  employeeId: string,
+  ignoreId: string | null,
+  errorTo: string,
+) {
   const startDate = dateField(formData, "startDate");
   const endDate = dateField(formData, "endDate") ?? startDate;
-  if (!startDate) fail(path, "Tanggal mulai cuti tidak valid.");
+  if (!startDate) fail(errorTo, "Tanggal mulai cuti tidak valid.");
   if (!endDate || endDate < startDate) {
-    fail(path, "Tanggal selesai tidak boleh sebelum tanggal mulai.");
+    fail(errorTo, "Tanggal selesai tidak boleh sebelum tanggal mulai.");
   }
 
   const days = leaveWorkDays(startDate, endDate);
-  if (days === 0) fail(path, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
+  if (days === 0) fail(errorTo, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
 
   const [overlap] = await db
     .select({ id: leaves.id })
     .from(leaves)
     .where(
       and(
-        eq(leaves.employeeId, employee.id),
+        eq(leaves.employeeId, employeeId),
         inArray(leaves.status, ["pending", "approved"]),
         lte(leaves.startDate, endDate),
         gte(leaves.endDate, startDate),
+        ignoreId ? ne(leaves.id, ignoreId) : undefined,
       ),
     )
     .limit(1);
 
-  if (overlap) fail(path, "Sudah ada pengajuan cuti di rentang tanggal itu.");
+  if (overlap) fail(errorTo, "Sudah ada pengajuan cuti di rentang tanggal itu.");
+
+  return { startDate, endDate, days };
+}
+
+export async function requestLeaveAction(formData: FormData) {
+  const { org, employee } = await requireEmployee();
+  const path = LEAVE_LIST;
+  const formPath = `${LEAVE_LIST}/baru`;
+
+  // Cuti hanya masuk akal untuk gaji bulanan: tipe lain dibayar dari kehadiran/tugas.
+  if (employee.payType !== "monthly") {
+    fail(path, "Cuti hanya berlaku untuk karyawan bulanan.");
+  }
+
+  const { startDate, endDate, days } = await validateLeave(
+    formData,
+    employee.id,
+    null,
+    formPath,
+  );
 
   const [row] = await db
     .insert(leaves)
@@ -410,9 +624,65 @@ export async function requestLeaveAction(formData: FormData) {
     diff: { startDate, endDate, days, paid: row.paid },
   });
 
-  revalidatePath("/employee/cuti");
+  revalidatePath(LEAVE_LIST);
   revalidatePath("/admin/cuti");
   ok(path, `Pengajuan cuti ${days} hari terkirim, menunggu persetujuan admin.`);
+}
+
+/** Karyawan mengubah pengajuan cutinya selama masih menunggu persetujuan. */
+export async function updateLeaveAction(formData: FormData) {
+  const { org, employee } = await requireEmployee();
+  const leaveId = str(formData, "leaveId");
+  const editPath = `${LEAVE_LIST}/${leaveId}`;
+
+  const [row] = await db
+    .select()
+    .from(leaves)
+    .where(
+      and(
+        eq(leaves.id, leaveId),
+        eq(leaves.orgId, org.id),
+        eq(leaves.employeeId, employee.id),
+      ),
+    )
+    .limit(1);
+
+  if (!row) fail(LEAVE_LIST, "Pengajuan cuti tidak ditemukan.");
+  if (row.status !== "pending") {
+    fail(LEAVE_LIST, "Cuti yang sudah diputuskan admin tidak bisa diubah.");
+  }
+
+  const { startDate, endDate, days } = await validateLeave(
+    formData,
+    employee.id,
+    row.id,
+    editPath,
+  );
+
+  await db
+    .update(leaves)
+    .set({
+      kind: normalizeLeaveKind(str(formData, "kind")),
+      startDate,
+      endDate,
+      days,
+      paid: str(formData, "paid") !== "0",
+      note: str(formData, "note") || null,
+    })
+    .where(eq(leaves.id, row.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: employee.userId,
+    entity: "leaves",
+    entityId: row.id,
+    action: "update",
+    diff: { startDate, endDate, days },
+  });
+
+  revalidatePath(LEAVE_LIST);
+  revalidatePath("/admin/cuti");
+  ok(LEAVE_LIST, "Pengajuan cuti diperbarui.");
 }
 
 export async function cancelLeaveAction(formData: FormData) {

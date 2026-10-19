@@ -1,19 +1,18 @@
+import Link from "next/link";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { leaves } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
-import { cancelLeaveAction, requestLeaveAction } from "../actions";
+import { cancelLeaveAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
-import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { PAY_TYPE_LABEL, formatDateID, localDateString } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
-import { LEAVE_KIND_OPTIONS, leaveKindLabel, leaveStatusTone } from "@/lib/leave";
+import { leaveKindLabel, leaveStatusTone } from "@/lib/leave";
 import { statusLabel } from "@/lib/labels";
 
 export default async function EmployeeLeavePage({
@@ -86,43 +85,9 @@ export default async function EmployeeLeavePage({
         />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Ajukan cuti</CardTitle>
-          <CardDescription>Admin akan meninjau pengajuanmu.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={requestLeaveAction} className="flex flex-col gap-3">
-            <FormField label="Tanggal mulai">
-              <Input type="date" name="startDate" defaultValue={today} required />
-            </FormField>
-            <FormField label="Tanggal selesai" hint="Isi sama bila hanya satu hari">
-              <Input type="date" name="endDate" defaultValue={today} />
-            </FormField>
-            <FormField label="Jenis">
-              <SelectInput name="kind" defaultValue="cuti">
-                {LEAVE_KIND_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </SelectInput>
-            </FormField>
-            <FormField label="Upah" hint="Tanpa upah = gaji bulan ini diprorata turun">
-              <SelectInput name="paid" defaultValue="1">
-                <option value="1">Berbayar (gaji tetap)</option>
-                <option value="0">Tanpa upah</option>
-              </SelectInput>
-            </FormField>
-            <FormField label="Catatan" hint="Opsional">
-              <Input name="note" placeholder="acara keluarga di luar kota" />
-            </FormField>
-            <Button type="submit" className="w-full">
-              Kirim pengajuan
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      <Button asChild className="w-full">
+        <Link href="/employee/cuti/baru">+ Ajukan cuti</Link>
+      </Button>
 
       <Card>
         <CardHeader>
@@ -163,12 +128,17 @@ export default async function EmployeeLeavePage({
                   </div>
 
                   {row.status === "pending" ? (
-                    <form action={cancelLeaveAction} className="mt-2">
-                      <input type="hidden" name="leaveId" value={row.id} />
-                      <Button type="submit" variant="ghost" size="sm">
-                        Batalkan pengajuan
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/employee/cuti/${row.id}`}>Ubah</Link>
                       </Button>
-                    </form>
+                      <form action={cancelLeaveAction}>
+                        <input type="hidden" name="leaveId" value={row.id} />
+                        <Button type="submit" variant="ghost" size="sm">
+                          Batalkan pengajuan
+                        </Button>
+                      </form>
+                    </div>
                   ) : null}
                 </li>
               ))}

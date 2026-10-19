@@ -602,11 +602,27 @@ export async function decideTaskAction(formData: FormData) {
   const { org, user } = await requireAdmin();
   const taskId = str(formData, "taskId");
   const decision = str(formData, "decision");
+  // Pengajuan karyawan datang tanpa harga: admin mengisi tarifnya di form yang sama.
+  const unitRate = parseMoneyInput(formData.get("unitRate"));
+
+  const [task] = await db
+    .select({ id: workTasks.id, unitRate: workTasks.unitRate })
+    .from(workTasks)
+    .where(and(eq(workTasks.id, taskId), eq(workTasks.orgId, org.id)))
+    .limit(1);
+
+  if (!task) fail("/admin/tugas", "Tugas tidak ditemukan.");
+
+  const finalRate = unitRate > 0 ? unitRate : toNumber(task.unitRate);
+  if (decision === "approve" && finalRate <= 0) {
+    fail("/admin/tugas", "Isi harga tugas dulu sebelum disetujui.");
+  }
 
   await db
     .update(workTasks)
     .set({
       status: decision === "approve" ? "approved" : "rejected",
+      ...(unitRate > 0 ? { unitRate: unitRate.toString() } : {}),
       approvedBy: user.id,
       approvedAt: new Date(),
     })
@@ -618,9 +634,11 @@ export async function decideTaskAction(formData: FormData) {
     entity: "work_tasks",
     entityId: taskId,
     action: decision,
+    diff: { unitRate: finalRate },
   });
 
   revalidatePath("/admin/tugas");
+  revalidatePath("/employee/tugas");
   ok("/admin/tugas", decision === "approve" ? "Tugas disetujui." : "Tugas ditolak.");
 }
 

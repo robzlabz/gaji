@@ -3,16 +3,34 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
+import { estimatePay } from "@/lib/estimate";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { statusLabel } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { formatDateID, rupiah, toNumber } from "@/lib/format";
+import { formatDateID, localDateString, rupiah, toNumber } from "@/lib/format";
+import { periodContaining, periodLabel } from "@/lib/period";
 
 export default async function EmployeePayslips() {
-  const { employee } = await requireEmployee();
+  const { org, employee } = await requireEmployee();
+
+  // Estimasi periode berjalan — slip resmi baru muncul setelah payroll difinalkan.
+  const today = localDateString(new Date(), org.timezone);
+  const period = periodContaining(today, org.payPeriodStartDay);
+  const estimate = await estimatePay({
+    orgId: org.id,
+    employee: {
+      id: employee.id,
+      payType: employee.payType,
+      payRate: employee.payRate,
+      joinedAt: employee.joinedAt,
+    },
+    period,
+    overtimeMultiplier: toNumber(org.overtimeMultiplier),
+  });
+  const extraGross = Math.max(0, estimate.potential.gross - estimate.approved.gross);
 
   const rows = await db
     .select({
@@ -50,6 +68,24 @@ export default async function EmployeePayslips() {
         <h1 className="text-lg font-semibold tracking-tight">Slip gaji</h1>
         <p className="text-xs text-muted-foreground">Slip muncul setelah admin memfinalkan periode.</p>
       </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Estimasi gaji</CardTitle>
+          <CardDescription>Periode berjalan {periodLabel(period)} · belum final</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-1">
+          <p className="text-2xl font-semibold tabular-nums">{rupiah(estimate.approved.net)}</p>
+          <p className="text-xs text-muted-foreground">
+            bruto {rupiah(estimate.approved.gross)} · potongan{" "}
+            {rupiah(estimate.approved.deductions)}
+            {extraGross > 0 ? ` · + ${rupiah(extraGross)} menunggu persetujuan` : ""}
+          </p>
+          <Button asChild variant="outline" size="sm" className="mt-2 w-full">
+            <Link href="/employee/slip/estimasi">Lihat rincian estimasi</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       {visible.length === 0 ? (
         <Card>
