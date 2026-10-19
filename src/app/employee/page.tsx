@@ -6,6 +6,7 @@ import { requireEmployee } from "@/lib/session";
 import { ClockCard } from "./clock-card";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
+import { LiveDuration } from "@/components/live-duration";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { statusLabel } from "@/lib/labels";
@@ -143,6 +144,9 @@ export default async function EmployeeHome({
                     breakMinutes: openEntry.breakMinutes,
                     overtimeMinutes: openEntry.overtimeMinutes,
                     overtimeNote: openEntry.overtimeNote,
+                    outPhotoSaved: Boolean(openEntry.outPhoto),
+                    outLat: openEntry.outLat,
+                    outLng: openEntry.outLng,
                   }
                 : null
             }
@@ -188,15 +192,20 @@ export default async function EmployeeHome({
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
-                      {minutesToHoursLabel(
-                        workedMinutes({
-                          id: entry.id,
-                          workDate: entry.workDate,
-                          clockInAt: entry.clockInAt,
-                          clockOutAt: entry.clockOutAt,
-                          breakMinutes: entry.breakMinutes,
-                          overtimeMinutes: entry.overtimeMinutes,
-                        }),
+                      {entry.clockOutAt ? (
+                        minutesToHoursLabel(
+                          workedMinutes({
+                            id: entry.id,
+                            workDate: entry.workDate,
+                            clockInAt: entry.clockInAt,
+                            clockOutAt: entry.clockOutAt,
+                            breakMinutes: entry.breakMinutes,
+                            overtimeMinutes: entry.overtimeMinutes,
+                          }),
+                        )
+                      ) : (
+                        // Sesi masih berjalan: jamnya hidup sendiri, tidak me-render ulang halaman.
+                        <LiveDuration since={entry.clockInAt.toISOString()} className="tabular-nums" />
                       )}
                     </span>
                     <StatusBadge

@@ -124,6 +124,8 @@ export async function clockOutAction(formData: FormData) {
   const lat = numberField(formData, "lat");
   const lng = numberField(formData, "lng");
   const photo = formData.get("photo");
+  const outPhoto =
+    typeof photo === "string" && photo.startsWith("data:image") ? photo : null;
 
   await db
     .update(timeEntries)
@@ -138,9 +140,11 @@ export async function clockOutAction(formData: FormData) {
         typeof overtimeNote === "string" && overtimeNote.trim() !== ""
           ? overtimeNote.trim()
           : open.overtimeNote,
-      outLat: lat,
-      outLng: lng,
-      outPhoto: typeof photo === "string" && photo.startsWith("data:image") ? photo : null,
+      // Foto/lokasi yang sudah tersimpan otomatis tidak boleh terhapus hanya karena
+      // form clock-out dikirim tanpa lampiran baru (mis. halaman sudah di-refresh).
+      outLat: lat ?? open.outLat,
+      outLng: lng ?? open.outLng,
+      outPhoto: outPhoto ?? open.outPhoto,
     })
     .where(eq(timeEntries.id, open.id));
 
@@ -155,6 +159,65 @@ export async function clockOutAction(formData: FormData) {
 
   revalidatePath("/employee");
   ok("/employee", "Clock out tercatat. Menunggu approval admin.");
+}
+
+/**
+ * Auto-save foto/lokasi ke sesi absensi yang sedang terbuka.
+ *
+ * Karyawan yang sudah clock in tidak perlu menekan tombol apa pun lagi: begitu foto
+ * diunggah atau lokasi didapat, nilainya langsung ditulis ke baris time_entries.
+ * Kalau belum clock in, foto/lokasi tetap di memori komponen dan baru tersimpan
+ * saat clock in ditekan (lihat clockInAction).
+ */
+export async function saveCaptureAction(input: {
+  photo?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+}): Promise<{ ok: boolean; message: string }> {
+  const { org, employee } = await requireEmployee();
+
+  const [open] = await db
+    .select()
+    .from(timeEntries)
+    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt)))
+    .limit(1);
+
+  if (!open) {
+    return { ok: false, message: "Belum clock in — foto & lokasi tersimpan saat kamu clock in." };
+  }
+
+  const photo =
+    typeof input.photo === "string" && input.photo.startsWith("data:image") ? input.photo : null;
+  const lat = typeof input.lat === "number" && Number.isFinite(input.lat) ? input.lat : null;
+  const lng = typeof input.lng === "number" && Number.isFinite(input.lng) ? input.lng : null;
+
+  if (!photo && (lat === null || lng === null)) {
+    return { ok: false, message: "Tidak ada foto atau lokasi yang bisa disimpan." };
+  }
+
+  await db
+    .update(timeEntries)
+    .set({
+      outPhoto: photo ?? open.outPhoto,
+      outLat: lat ?? open.outLat,
+      outLng: lng ?? open.outLng,
+    })
+    .where(eq(timeEntries.id, open.id));
+
+  await audit({
+    orgId: org.id,
+    actorId: employee.userId,
+    entity: "time_entries",
+    entityId: open.id,
+    action: "capture",
+    diff: { hasPhoto: Boolean(photo), lat, lng },
+  });
+
+  const saved = [photo ? "Foto" : null, lat !== null && lng !== null ? "Lokasi" : null]
+    .filter(Boolean)
+    .join(" & ");
+
+  return { ok: true, message: `${saved} tersimpan otomatis.` };
 }
 
 export async function markTaskDoneAction(formData: FormData) {
