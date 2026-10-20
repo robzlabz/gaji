@@ -14,6 +14,7 @@ docker compose up -d
 
 cd web
 npm install
+cp .env.example .env.local  # lalu sesuaikan DATABASE_URL jika perlu
 npm run db:push     # sinkron schema (pakai --force bila non-interaktif)
 npm run db:seed     # data demo 2 tenant
 npm run dev
