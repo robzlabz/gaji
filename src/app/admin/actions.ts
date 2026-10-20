@@ -1619,15 +1619,19 @@ export async function recalculatePayrollDraftAction(formData: FormData) {
   if (period.status !== "draft")
     fail(`/admin/payroll/${periodId}`, "Hanya draft yang bisa dihitung ulang.");
 
-  const preview = await previewPayroll(
-    org.id,
-    { start: period.periodStart, end: period.periodEnd },
-    { overtimeMultiplier: toNumber(org.overtimeMultiplier) },
-  );
-  const payable = preview.rows.filter((row) => row.computation.lines.length > 0);
-
-  await db.transaction(async (tx) => {
+  const payable = await db.transaction(async (tx) => {
     await revertPayrollSettlements(tx, periodId);
+
+    // Re-read kasbon after restoring this draft's repayments. Fully paid advances
+    // must be eligible for the replacement preview before their balances are cut again.
+    const preview = await previewPayroll(
+      org.id,
+      { start: period.periodStart, end: period.periodEnd },
+      { overtimeMultiplier: toNumber(org.overtimeMultiplier) },
+      tx,
+    );
+    const rows = preview.rows.filter((row) => row.computation.lines.length > 0);
+
     await tx.delete(payslips).where(eq(payslips.payPeriodId, periodId));
 
     await writePayrollSlips(tx, {
@@ -1635,8 +1639,10 @@ export async function recalculatePayrollDraftAction(formData: FormData) {
       periodId,
       periodEnd: period.periodEnd,
       userId: user.id,
-      rows: payable,
+      rows,
     });
+
+    return rows;
   });
 
   await audit({

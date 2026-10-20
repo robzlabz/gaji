@@ -19,6 +19,9 @@ import { balanceBefore, coverageForPeriod, periodLedgerSummary, rateAtDate } fro
 import type { Period } from "@/lib/period";
 import { toNumber } from "@/lib/format";
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Conn = Tx | typeof db;
+
 export type AdvanceSummary = {
   /** Total yang akan dipotong dari slip periode ini. */
   deductTotal: number;
@@ -70,8 +73,9 @@ export async function previewPayroll(
   orgId: string,
   period: Period,
   settings: { overtimeMultiplier: number },
+  conn: Conn = db,
 ): Promise<PayrollPreview> {
-  const staff = await db
+  const staff = await conn
     .select()
     .from(employees)
     .where(and(eq(employees.orgId, orgId), eq(employees.isActive, true)));
@@ -82,7 +86,7 @@ export async function previewPayroll(
     return { rows: [], totalGross: 0, totalDeductions: 0, totalNet: 0, employeeCount: 0 };
   }
 
-  const entries = await db
+  const entries = await conn
     .select()
     .from(timeEntries)
     .where(
@@ -95,7 +99,7 @@ export async function previewPayroll(
       ),
     );
 
-  const tasks = await db
+  const tasks = await conn
     .select()
     .from(workTasks)
     .where(
@@ -107,7 +111,7 @@ export async function previewPayroll(
       ),
     );
 
-  const advances = await db
+  const advances = await conn
     .select()
     .from(cashAdvances)
     .where(
@@ -119,7 +123,7 @@ export async function previewPayroll(
     );
 
   // Cuti approved yang menyentuh periode ini; hanya dipakai untuk karyawan bulanan.
-  const leaveRows = await db
+  const leaveRows = await conn
     .select()
     .from(leaves)
     .where(
@@ -133,7 +137,7 @@ export async function previewPayroll(
     );
 
   // Keputusan karyawan/admin khusus untuk periode ini (potong sebagian / tunda).
-  const plans = await db
+  const plans = await conn
     .select({
       cashAdvanceId: cashAdvancePlans.cashAdvanceId,
       decision: cashAdvancePlans.decision,
@@ -146,7 +150,7 @@ export async function previewPayroll(
 
   // Riwayat tarif dipakai untuk "tarif saat kejadian": absensi tanggal lama tetap
   // dihitung dengan tarif yang berlaku saat itu, bukan tarif sekarang.
-  const rateRows = await db
+  const rateRows = await conn
     .select({
       employeeId: payRateHistory.employeeId,
       kind: payRateHistory.kind,
@@ -164,7 +168,7 @@ export async function previewPayroll(
   }
 
   // Saldo prabayar: hanya karyawan yang punya baris saldo yang upahnya dipotong saldo.
-  const floats = await db
+  const floats = await conn
     .select()
     .from(wageFloats)
     .where(and(eq(wageFloats.orgId, orgId), inArray(wageFloats.employeeId, employeeIds)));
@@ -172,7 +176,7 @@ export async function previewPayroll(
   const floatByEmployee = new Map(floats.map((row) => [row.employeeId, row]));
 
   const saldoTxns = floats.length
-    ? await db
+    ? await conn
         .select({
           floatId: wageFloatTxns.floatId,
           kind: wageFloatTxns.kind,
