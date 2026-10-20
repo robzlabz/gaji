@@ -1,17 +1,11 @@
 import Link from "next/link";
-import { and, eq } from "drizzle-orm";
-import { db } from "@/db";
-import { employees } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { topUpSaldoAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
-import { FormField, SelectInput } from "@/components/form-field";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -20,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDateID, localDateString, rupiah, toNumber } from "@/lib/format";
+import { formatDateID, rupiah, toNumber } from "@/lib/format";
 import { isSaldoLow, saldoTone } from "@/lib/saldo";
 import { listSaldoOverview } from "@/lib/saldo-server";
 
@@ -31,21 +25,7 @@ export default async function SaldoPage({
 }) {
   const { org } = await requireAdmin();
   const { ok, err } = await searchParams;
-  const today = localDateString(new Date(), org.timezone);
-
-  const [rows, staff] = await Promise.all([
-    listSaldoOverview(org.id),
-    db
-      .select({
-        id: employees.id,
-        fullName: employees.fullName,
-        payType: employees.payType,
-        transportRate: employees.transportRate,
-      })
-      .from(employees)
-      .where(and(eq(employees.orgId, org.id), eq(employees.isActive, true)))
-      .orderBy(employees.fullName),
-  ]);
+  const rows = await listSaldoOverview(org.id);
 
   const withSaldo = rows.filter((row) => row.floatId !== null);
   const totalBalance = withSaldo.reduce((sum, row) => sum + Math.max(0, row.balance), 0);
@@ -76,41 +56,11 @@ export default async function SaldoPage({
         <StatCard label="Saldo tipis" value={low.length} hint="di bawah Rp 200.000" />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Kirim uang</CardTitle>
-          <CardDescription>
-            Saldo dibuat otomatis saat top up pertama. Tanpa saldo, karyawan dibayar tunai seperti biasa.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={topUpSaldoAction} className="grid gap-3 sm:grid-cols-4">
-            <input type="hidden" name="backTo" value="/admin/saldo" />
-            <FormField label="Karyawan">
-              <SelectInput name="employeeId" required defaultValue="">
-                <option value="">Pilih karyawan…</option>
-                {staff.map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.fullName}
-                  </option>
-                ))}
-              </SelectInput>
-            </FormField>
-            <FormField label="Nominal (Rp)">
-              <Input name="amount" inputMode="numeric" placeholder="500000" required />
-            </FormField>
-            <FormField label="Tanggal kirim">
-              <Input type="date" name="occurredAt" defaultValue={today} />
-            </FormField>
-            <FormField label="Catatan">
-              <Input name="note" placeholder="opsional" />
-            </FormField>
-            <div className="sm:col-span-4">
-              <Button type="submit">Tambah saldo</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <div className="flex justify-end">
+        <Button asChild>
+          <Link href="/admin/saldo/baru">Tambah saldo</Link>
+        </Button>
+      </div>
 
       <Card>
         <CardHeader>
