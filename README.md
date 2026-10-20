@@ -1,135 +1,161 @@
-# Gaji — Payroll & Absensi
+# Gaji
 
-Aplikasi penggajian multi-tenant: karyawan, kontrak, absensi (clock in/out PWA), tugas, kasbon, dan slip gaji.
+**Gaji** adalah aplikasi penggajian dan pengelolaan tenaga kerja multi-tenant untuk bisnis kecil. Kelola data karyawan, kontrak, absensi, upah tugas, kasbon, dan slip gaji dalam satu aplikasi.
 
-- Stack: Next.js 15 (App Router) + Postgres + Drizzle ORM + Better Auth + Tailwind v4
-- Login karyawan: nomor HP + PIN 6 digit
-- Dua dashboard: `/admin` (owner/admin) dan `/employee` (karyawan)
+Gaji menyediakan dashboard terpisah untuk administrator dan karyawan. Tampilan karyawan dirancang agar nyaman digunakan melalui perangkat seluler, termasuk untuk mencatat jam masuk dan pulang.
 
-## Jalankan
+## Tampilan aplikasi
+
+| Dashboard admin | Dashboard karyawan |
+| --- | --- |
+| ![Pengelolaan saldo oleh admin](docs/saldo/01-admin-saldo.png) | ![Dashboard karyawan](docs/saldo/08-karyawan-dashboard.png) |
+| **Kelola saldo dan permintaan karyawan** | **Lihat pekerjaan dan informasi penghasilan** |
+
+| Payroll | Integrasi AI melalui MCP |
+| --- | --- |
+| ![Draft payroll](docs/saldo/05-admin-payroll-draft.png) | ![Pengaturan MCP di dashboard admin](docs/mcp/01-admin-mcp-desktop-light.png) |
+| **Tinjau payroll sebelum disetujui** | **Hubungkan tool read-only ke klien AI** |
+
+## Fitur
+
+- Kelola beberapa organisasi dari satu akun.
+- Catat data karyawan, kontrak, dan riwayat upah.
+- Kelola absensi dengan fitur clock-in dan clock-out karyawan, termasuk dukungan PWA.
+- Pantau upah berbasis tugas, kasbon, dan transaksi saldo karyawan.
+- Siapkan payroll dan terbitkan slip gaji dengan snapshot nilai upah dan kuantitas.
+- Hubungkan klien AI melalui server [Model Context Protocol (MCP)](https://modelcontextprotocol.io) read-only.
+
+## Teknologi
+
+- Next.js 15 dengan App Router dan React 19
+- PostgreSQL dengan Drizzle ORM
+- Better Auth
+- Tailwind CSS v4
+
+## Menjalankan secara lokal
+
+### Kebutuhan
+
+- Node.js dan npm
+- PostgreSQL 16, atau Docker untuk menjalankannya secara lokal
+
+### Persiapan
+
+Jalankan PostgreSQL lokal, misalnya dengan Docker:
 
 ```bash
-# dari root repo
-docker compose up -d
+docker run --name gaji-postgres \
+  -e POSTGRES_USER=gaji \
+  -e POSTGRES_PASSWORD=gaji \
+  -e POSTGRES_DB=gaji \
+  -p 5432:5432 \
+  -d postgres:16-alpine
+```
 
-cd web
+Dari direktori utama repo, pasang dependensi dan siapkan konfigurasi:
+
+```bash
 npm install
-cp .env.example .env.local  # lalu sesuaikan DATABASE_URL jika perlu
-npm run db:push     # sinkron schema (pakai --force bila non-interaktif)
-npm run db:seed     # data demo 2 tenant
+cp .env.example .env.local
+```
+
+Jika PostgreSQL berjalan di host atau port lain, sesuaikan `DATABASE_URL` di `.env.local`. Setelah itu, sinkronkan schema, isi data demo, dan jalankan server:
+
+```bash
+npm run db:push
+npm run db:seed
 npm run dev
 ```
 
-Buka http://localhost:3000.
+Buka [http://localhost:3000](http://localhost:3000).
 
-## Akun demo
+### Akun demo
 
-| Peran | HP | PIN | Catatan |
-|---|---|---|---|
-| Owner | 0811111111 | 111111 | akses Kopi Senja & Bakery Pagi |
-| Budi | 0822222222 | 222222 | per jam |
-| Sari | 0833333333 | 333333 | per hari |
-| Andi | 0844444444 | 444444 | per bulan |
-| Rina | 0855555555 | 555555 | per tugas |
-| Tono | 0866666666 | 666666 | tenant Bakery Pagi |
+Script seed membuat dua organisasi contoh dan akun berikut. Masukkan nomor HP dan PIN pada halaman login.
 
-## Skrip
+| Akun | Nomor HP | PIN | Jenis upah / akses |
+| --- | --- | --- | --- |
+| Owner | `0811111111` | `111111` | Akses Kopi Senja dan Bakery Pagi |
+| Budi | `0822222222` | `222222` | Per jam |
+| Sari | `0833333333` | `333333` | Per hari |
+| Andi | `0844444444` | `444444` | Per bulan |
+| Rina | `0855555555` | `555555` | Per tugas |
+| Tono | `0866666666` | `666666` | Bakery Pagi |
 
-| Skrip | Fungsi |
-|---|---|
-| `npm run dev` | dev server |
-| `npm run build` | build produksi + lint |
-| `npm run db:push` | dorong schema Drizzle ke Postgres |
-| `npm run db:studio` | Drizzle Studio |
-| `npm run db:seed` | reset tenant demo + isi data contoh |
-| `npm run mcp` | server MCP stdio read-only untuk AI (lihat `mcp/README.md`) |
-| `npm run mcp:smoke` | uji server MCP lewat stdio: panggil semua tool, cetak hasil |
-| `npm run mcp:smoke:http` | uji endpoint `/api/mcp` (Streamable HTTP) |
-| `npm run mcp:key` | kelola API key MCP dari terminal (list / create / revoke) |
+Akun ini hanya untuk data demo lokal. Jangan gunakan kredensial tersebut di lingkungan produksi.
 
-## MCP untuk AI (pemantauan)
+## Perintah npm
 
-Aplikasi ini melayani server [MCP](https://modelcontextprotocol.io) read-only berisi 19 tool —
-ringkasan harian, absensi real-time, antrean approval, simulasi payroll, kasbon, kontrak hampir
-habis, sampai audit log — supaya data Gaji bisa ditanya langsung lewat AI.
+| Perintah | Keterangan |
+| --- | --- |
+| `npm run dev` | Jalankan server pengembangan. |
+| `npm run build` | Build aplikasi untuk produksi. |
+| `npm run start` | Jalankan server produksi. |
+| `npm run db:push` | Sinkronkan schema Drizzle dengan PostgreSQL. |
+| `npm run db:generate` | Buat migrasi SQL di direktori `drizzle/`. |
+| `npm run db:studio` | Buka Drizzle Studio. |
+| `npm run db:seed` | Reset dan isi organisasi serta data demo. |
+| `npm run mcp` | Jalankan server MCP read-only melalui stdio. |
+| `npm run mcp:smoke` | Jalankan pemeriksaan tool MCP melalui stdio. |
+| `npm run mcp:smoke:http` | Periksa endpoint MCP Streamable HTTP. |
+| `npm run mcp:key` | Lihat, buat, atau cabut API key MCP. |
 
-Endpoint-nya **Streamable HTTP** di `/api/mcp`, dan kuncinya dikelola dari halaman **MCP** di
-dashboard admin (`/admin/mcp`): Connection URL, Server URL, header Authorization, plus tombol
-buat/cabut kunci. Setiap kunci hanya bisa membaca satu organisasi.
+## Integrasi MCP
+
+Gaji menyediakan data payroll dan tenaga kerja secara read-only untuk klien AI yang kompatibel melalui endpoint Streamable HTTP `/api/mcp`. Halaman **MCP** di dashboard admin (`/admin/mcp`) menampilkan informasi koneksi dan menyediakan pengelolaan API key. Setiap key dibatasi untuk satu organisasi.
+
+Tool MCP mencakup ringkasan harian, absensi, antrean persetujuan, pratinjau payroll, kasbon, kontrak yang akan berakhir, dan audit log. Query dijalankan dalam transaksi database read-only dengan batas waktu 20 detik.
+
+Untuk mencoba endpoint HTTP secara lokal, jalankan aplikasi, buat API key dari halaman `/admin/mcp`, lalu jalankan:
 
 ```bash
-npm run dev                        # lalu buka /admin/mcp dan salin Connection URL
-npm run mcp:smoke:http -- --port 3000   # bukti jalan lewat HTTP
+npm run mcp:smoke:http -- --port 3000
 ```
 
-Semua query tool dibungkus transaksi `read only` + `statement_timeout` 20s, jadi tidak mungkin
-mengubah data. Detail transport, auth, dan cara pasang di client: [`mcp/README.md`](mcp/README.md).
+Detail transport, autentikasi, dan konfigurasi klien tersedia di [`mcp/README.md`](mcp/README.md).
 
-## Struktur singkat
+## Struktur proyek
 
-```
+```text
 src/
   app/
-    admin/          dashboard owner/admin (ringkasan, karyawan, kontrak, absensi, tugas, kasbon, payroll, pengaturan)
-    employee/       dashboard karyawan (clock in/out, riwayat, tugas, kasbon, slip)
-    api/auth/       handler Better Auth
-    api/switch-org/ ganti tenant aktif
-    login/          login HP + PIN
-  db/               schema Drizzle, koneksi, seed
-  lib/              auth, session/tenant, payroll (kalkulasi), period, utils, audit
-  components/       UI primitif
+    admin/          Dashboard administrator
+    employee/       Dashboard karyawan
+    api/auth/       Handler Better Auth
+    api/switch-org/ Fitur ganti organisasi
+    login/          Login nomor HP dan PIN
+  db/               Schema Drizzle, koneksi database, dan seed
+  lib/              Autentikasi, akses tenant, payroll, dan audit
+  components/       Komponen UI bersama
 ```
 
 ## Catatan desain
 
-- `payslip_items` menyimpan snapshot (qty, tarif, jumlah) — perubahan tarif tidak mengubah slip lama.
-- Satu sesi absensi terbuka per karyawan (partial unique index `time_entries_one_open`).
-- Jam clock-in selalu dari server, bukan jam device.
-- Semua query difilter `org_id`, bukan hanya `employee_id`.
-- Kontrak yang sudah berjalan menyetir `employees.pay_rate` + dicatat di `pay_rate_history`.
+- Item slip gaji menyimpan snapshot kuantitas, tarif, dan jumlah agar perubahan tarif tidak mengubah slip terdahulu.
+- Partial unique index memastikan satu karyawan hanya memiliki satu sesi absensi terbuka.
+- Waktu clock-in menggunakan waktu dari server.
+- Akses data dibatasi berdasarkan `org_id` untuk memisahkan data antarorganisasi.
+- Kontrak aktif memperbarui upah karyawan dan mencatat perubahan di `pay_rate_history`.
 
 ## Deployment
 
-Produksi jalan di **Easypanel** (`http://43.156.18.75:3000`), project `client`:
+Aplikasi produksi dijalankan melalui Easypanel. Service menggunakan `Dockerfile` di repo ini, berjalan di port `3000`, dan menerapkan migrasi database saat container dimulai sebelum menjalankan server Next.js.
 
-| Komponen | Nama | Keterangan |
-|---|---|---|
-| App | `client/gaji` | build dari repo ini (`Dockerfile`, port 3000) |
-| Database | `client/gaji-db` | Postgres 16, database & user `gaji` |
-| Domain | https://gaji.timbolu.com | Traefik + Let's Encrypt |
+Atur variabel lingkungan berikut di platform deployment:
 
-### Env yang di-set di Easypanel
-
-```
+```dotenv
 NODE_ENV=production
-DATABASE_URL=postgres://gaji:<password>@client_gaji-db:5432/gaji
-BETTER_AUTH_SECRET=<32+ karakter acak>
-BETTER_AUTH_URL=https://gaji.timbolu.com
+DATABASE_URL=postgres://<user>:<password>@<host>:5432/<database>
+BETTER_AUTH_SECRET=<secret acak minimal 32 karakter>
+BETTER_AUTH_URL=https://<domain-anda>
 ```
 
-### Alur deploy
-
-1. Push ke `main` → Easypanel auto-deploy (webhook GitHub App) **dan** workflow `.github/workflows/deployment.yml`.
-   > Saat ini auto-deploy Easypanel yang aktif karena GitHub Actions akun ini terkunci masalah billing.
-   > Kalau Actions sudah jalan, pilih salah satu: matikan `autoDeploy` di service `gaji`, atau hapus workflow-nya.
-2. Image dibangun dari `Dockerfile` (multi-stage, `output: "standalone"`).
-3. Saat container start: `node scripts/migrate.mjs` menjalankan migrasi Drizzle di `drizzle/` (dicatat di tabel `app_migrations`), lalu `node server.js`.
-
-### Ubah schema
+Saat deployment, `node scripts/migrate.mjs` menerapkan migrasi yang belum dijalankan dari `drizzle/` dan mencatatnya di tabel `app_migrations`. Untuk mengubah schema, buat dan commit migrasi:
 
 ```bash
-npm run db:generate    # bikin SQL migrasi baru di drizzle/
-git add drizzle && git commit -m "chore(db): migrasi ..." && git push
+npm run db:generate
+git add drizzle
+git commit -m "chore(db): deskripsikan migrasi"
 ```
 
-Migrasi otomatis jalan saat deploy berikutnya — tidak perlu akses langsung ke database produksi.
-
-### Deploy manual
-
-```bash
-curl -X POST "http://43.156.18.75:3000/api/deploy/<service-token>"
-```
-
-Service token ada di Easypanel → project `client` → service `gaji` → Deployments.
-Workflow GitHub Actions memakai repo secret `EASYPANEL_DEPLOY_WEBHOOK` untuk URL di atas.
-
+Pipeline deployment yang dikonfigurasi menerbitkan perubahan dari branch `main`. Simpan secret deployment di platform hosting atau repository secrets dan jangan commit kredensial ke repo.
