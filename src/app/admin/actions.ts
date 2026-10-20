@@ -827,6 +827,52 @@ export async function createTaskAction(formData: FormData) {
   ok("/admin/tugas", "Tugas dibuat.");
 }
 
+export async function updateTaskAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const taskId = str(formData, "taskId");
+  const title = str(formData, "title");
+  const employeeId = optionalStr(formData, "employeeId");
+  const qty = Number(str(formData, "qty")) || 1;
+  const unit = str(formData, "unit") || "tugas";
+  const unitRate = parseMoneyInput(formData.get("unitRate"));
+  const workDate = str(formData, "workDate");
+  const description = optionalStr(formData, "description");
+
+  if (!title) fail(`/admin/tugas/${taskId}`, "Judul tugas wajib diisi.");
+  if (unitRate <= 0) fail(`/admin/tugas/${taskId}`, "Tarif per unit harus lebih dari 0.");
+  if (!workDate) fail(`/admin/tugas/${taskId}`, "Tanggal kerja wajib diisi.");
+  if (employeeId) {
+    const [employee] = await db.select({ id: employees.id }).from(employees)
+      .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id))).limit(1);
+    if (!employee) fail(`/admin/tugas/${taskId}`, "Karyawan tidak ditemukan.");
+  }
+  const [task] = await db.select({ id: workTasks.id, title: workTasks.title }).from(workTasks)
+    .where(and(eq(workTasks.id, taskId), eq(workTasks.orgId, org.id))).limit(1);
+  if (!task) fail("/admin/tugas", "Tugas tidak ditemukan.");
+
+  await db.update(workTasks).set({ employeeId, title, description, qty: qty.toString(), unit,
+    unitRate: unitRate.toString(), workDate }).where(and(eq(workTasks.id, taskId), eq(workTasks.orgId, org.id)));
+  await audit({ orgId: org.id, actorId: user.id, entity: "work_tasks", entityId: taskId,
+    action: "update", diff: { title, qty, unitRate } });
+  revalidatePath("/admin/tugas");
+  revalidatePath(`/admin/tugas/${taskId}`);
+  ok("/admin/tugas", "Tugas diperbarui.");
+}
+
+export async function deleteTaskAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const taskId = str(formData, "taskId");
+  const [task] = await db.select({ id: workTasks.id, title: workTasks.title }).from(workTasks)
+    .where(and(eq(workTasks.id, taskId), eq(workTasks.orgId, org.id))).limit(1);
+  if (!task) fail("/admin/tugas", "Tugas tidak ditemukan.");
+  await db.delete(workTasks).where(and(eq(workTasks.id, taskId), eq(workTasks.orgId, org.id)));
+  await audit({ orgId: org.id, actorId: user.id, entity: "work_tasks", entityId: taskId,
+    action: "delete", diff: { title: task.title } });
+  revalidatePath("/admin/tugas");
+  revalidatePath("/employee/tugas");
+  ok("/admin/tugas", "Tugas dihapus.");
+}
+
 export async function decideTaskAction(formData: FormData) {
   const { org, user } = await requireAdmin();
   const taskId = str(formData, "taskId");
