@@ -67,14 +67,17 @@ export async function clockInAction(formData: FormData) {
   // Ongkos kedatangan boleh diisi karyawan sendiri (mis. beda ongkos kalau naik motor
   // vs ojek). Kalau field tidak dikirim, pakai tarif default karyawan.
   const rawTransport = formData.get("transportAmount");
-  const transportAmount = Math.max(
-    0,
-    Math.round(
-      typeof rawTransport === "string" && rawTransport.trim() !== ""
-        ? parseMoneyInput(rawTransport)
-        : toNumber(employee.transportRate),
-    ),
-  );
+  const transportAmount =
+    employee.payType === "hourly"
+      ? Math.max(
+          0,
+          Math.round(
+            typeof rawTransport === "string" && rawTransport.trim() !== ""
+              ? parseMoneyInput(rawTransport)
+              : toNumber(employee.transportRate),
+          ),
+        )
+      : 0;
 
   let withinGeofence: boolean | null = null;
   if (

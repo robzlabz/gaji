@@ -105,6 +105,7 @@ export default async function EmployeeHome({
         </CardHeader>
         <CardContent>
           <ClockCard
+            payType={employee.payType}
             transportRate={toNumber(employee.transportRate)}
             openEntry={
               openEntry

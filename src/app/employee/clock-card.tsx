@@ -47,9 +47,11 @@ function getPosition(): Promise<GeolocationPosition | null> {
 
 export function ClockCard({
   openEntry,
+  payType,
   transportRate = 0,
 }: {
   openEntry: OpenEntry | null;
+  payType: "hourly" | "daily" | "monthly" | "per_task";
   /** Ongkos default per kedatangan (Rp). 0 = karyawan ini tidak dapat ongkos. */
   transportRate?: number;
 }) {
@@ -127,10 +129,10 @@ export function ClockCard({
       <input type="hidden" name="accuracy" value={coords?.accuracy ?? ""} />
       <input type="hidden" name="photo" value={photo} />
 
-      {!openEntry && transportRate > 0 && (
+      {!openEntry && payType === "hourly" && (
         <FormField
-          label="Ongkos kedatangan (Rp)"
-          hint="Sudah terisi tarif kamu. Ubah kalau kali ini beda (mis. tidak jadi naik ojek)."
+          label="Ongkos perjalanan (Rp)"
+          hint="Isi ongkos perjalanan untuk kedatangan ini. Tarif default kamu sudah terisi."
         >
           <Input name="transportAmount" inputMode="numeric" defaultValue={Math.round(transportRate)} />
         </FormField>
