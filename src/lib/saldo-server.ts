@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   employees,
@@ -107,7 +107,7 @@ export async function accrueForEntry(
   const [entry] = await conn
     .select()
     .from(timeEntries)
-    .where(and(eq(timeEntries.id, input.entryId), eq(timeEntries.orgId, input.orgId)))
+    .where(and(eq(timeEntries.id, input.entryId), eq(timeEntries.orgId, input.orgId), isNull(timeEntries.deletedAt)))
     .limit(1);
 
   if (!entry) return { ok: false, message: "Absensi tidak ditemukan." };

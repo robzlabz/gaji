@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { db } from "@/db";
 import { timeEntries } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
@@ -21,6 +21,7 @@ export default async function EmployeeHistory() {
     .where(
       and(
         eq(timeEntries.employeeId, employee.id),
+        isNull(timeEntries.deletedAt),
         gte(timeEntries.workDate, period.start),
         lte(timeEntries.workDate, period.end),
       ),

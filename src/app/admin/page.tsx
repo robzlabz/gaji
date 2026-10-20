@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, count, desc, eq, gte, lte, sql, sum } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, lte, sql, sum } from "drizzle-orm";
 import { db } from "@/db";
 import { cashAdvances, contracts, employees, payPeriods, timeEntries } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
@@ -39,12 +39,12 @@ export default async function AdminDashboard() {
   const [pendingEntries] = await db
     .select({ total: count() })
     .from(timeEntries)
-    .where(and(eq(timeEntries.orgId, org.id), eq(timeEntries.status, "pending")));
+    .where(and(eq(timeEntries.orgId, org.id), eq(timeEntries.status, "pending"), isNull(timeEntries.deletedAt)));
 
   const [openShifts] = await db
     .select({ total: count() })
     .from(timeEntries)
-    .where(and(eq(timeEntries.orgId, org.id), sql`${timeEntries.clockOutAt} is null`));
+    .where(and(eq(timeEntries.orgId, org.id), sql`${timeEntries.clockOutAt} is null`, isNull(timeEntries.deletedAt)));
 
   const [advanceOutstanding] = await db
     .select({ total: sum(cashAdvances.balance) })
@@ -103,6 +103,7 @@ export default async function AdminDashboard() {
     .where(
       and(
         eq(timeEntries.orgId, org.id),
+        isNull(timeEntries.deletedAt),
         gte(timeEntries.workDate, period.start),
         lte(timeEntries.workDate, period.end),
       ),

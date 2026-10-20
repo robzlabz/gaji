@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -595,7 +595,7 @@ export async function decideTimeEntryAction(formData: FormData) {
         ...(Number.isFinite(overtimeMinutes) && overtimeMinutes >= 0 ? { overtimeMinutes } : {}),
         ...(hasTransport ? { transportAmount: transportAmount.toString() } : {}),
       })
-      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)));
+      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id), isNull(timeEntries.deletedAt)));
 
     // Saldo dipotong di titik ini: hanya absensi yang sudah disetujui yang boleh
     // mengurangi uang muka. Menolak absensi berarti accrual-nya dibatalkan.
@@ -639,7 +639,7 @@ export async function setTransportAmountAction(formData: FormData) {
   const [entry] = await db
     .select()
     .from(timeEntries)
-    .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)))
+    .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id), isNull(timeEntries.deletedAt)))
     .limit(1);
 
   if (!entry) fail(backTo, "Absensi tidak ditemukan.");
@@ -668,6 +668,91 @@ export async function setTransportAmountAction(formData: FormData) {
   revalidatePath("/admin/absensi");
   revalidatePath("/admin/saldo");
   ok(backTo, "Ongkos kedatangan disimpan.");
+}
+
+/** Koreksi jam clock in/out oleh admin (nilai input mengikuti zona waktu organisasi). */
+export async function editTimeEntryAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const entryId = str(formData, "entryId");
+  const backTo = adminPath(formData, "backTo", "/admin/absensi");
+  const clockInValue = str(formData, "clockInAt");
+  const clockOutValue = str(formData, "clockOutAt");
+  const parseLocalDateTime = (value: string): Date | null => {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+    const [datePart, timePart] = value.split("T");
+    const [year, month, day] = datePart.split("-").map(Number);
+    const [hour, minute] = timePart.split(":").map(Number);
+    const wallTime = new Date(Date.UTC(year, month - 1, day, hour, minute));
+    if (
+      wallTime.getUTCFullYear() !== year || wallTime.getUTCMonth() !== month - 1 ||
+      wallTime.getUTCDate() !== day || wallTime.getUTCHours() !== hour ||
+      wallTime.getUTCMinutes() !== minute
+    ) return null;
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: org.timezone, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(wallTime);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    const representedAsUtc = Date.UTC(
+      Number(values.year), Number(values.month) - 1, Number(values.day),
+      Number(values.hour), Number(values.minute),
+    );
+    return new Date(2 * wallTime.getTime() - representedAsUtc);
+  };
+  const clockInAt = parseLocalDateTime(clockInValue);
+  const clockOutAt = clockOutValue ? parseLocalDateTime(clockOutValue) : null;
+  if (!clockInAt || (clockOutValue && !clockOutAt)) fail(backTo, "Format jam absensi tidak valid.");
+  if (clockOutAt && clockOutAt <= clockInAt) fail(backTo, "Jam clock out harus setelah clock in.");
+
+  const [entry] = await db.select().from(timeEntries).where(and(
+    eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id), isNull(timeEntries.deletedAt),
+  )).limit(1);
+  if (!entry) fail(backTo, "Absensi tidak ditemukan.");
+
+  const workDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: org.timezone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(clockInAt);
+  await db.transaction(async (tx) => {
+    await tx.update(timeEntries).set({ clockInAt, clockOutAt, workDate })
+      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)));
+    if (entry.status === "approved") {
+      const result = await accrueForEntry(tx, { orgId: org.id, entryId, userId: user.id });
+      if (!result.ok) throw new Error(result.message);
+    }
+  });
+  await audit({ orgId: org.id, actorId: user.id, entity: "time_entries", entityId: entryId,
+    action: "edit_time", diff: { clockInAt: { from: entry.clockInAt, to: clockInAt },
+      clockOutAt: { from: entry.clockOutAt, to: clockOutAt }, workDate: { from: entry.workDate, to: workDate } } });
+  revalidatePath("/admin/absensi");
+  revalidatePath("/admin/payroll");
+  revalidatePath("/employee");
+  revalidatePath("/employee/absensi");
+  ok(backTo, "Jam absensi diperbarui.");
+}
+
+/** Tandai absensi terhapus dan pulihkan saldo bila sebelumnya sudah approved. */
+export async function deleteTimeEntryAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const entryId = str(formData, "entryId");
+  const backTo = adminPath(formData, "backTo", "/admin/absensi");
+  const [entry] = await db.select().from(timeEntries).where(and(
+    eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id), isNull(timeEntries.deletedAt),
+  )).limit(1);
+  if (!entry) fail(backTo, "Absensi tidak ditemukan.");
+
+  await db.transaction(async (tx) => {
+    if (entry.status === "approved") await reverseAccrual(tx, entryId);
+    await tx.update(timeEntries).set({ deletedAt: new Date() })
+      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)));
+  });
+  await audit({ orgId: org.id, actorId: user.id, entity: "time_entries", entityId: entryId,
+    action: "soft_delete", diff: { workDate: entry.workDate, status: entry.status } });
+  revalidatePath("/admin/absensi");
+  revalidatePath("/admin/payroll");
+  revalidatePath("/admin/saldo");
+  revalidatePath("/employee");
+  revalidatePath("/employee/absensi");
+  ok(backTo, "Absensi dihapus.");
 }
 
 /* -------------------------------- saldo ------------------------------- */
@@ -763,7 +848,7 @@ export async function resyncSaldoAction(formData: FormData) {
   const entries = await db
     .select({ id: timeEntries.id })
     .from(timeEntries)
-    .where(and(eq(timeEntries.orgId, org.id), eq(timeEntries.employeeId, employeeId), eq(timeEntries.status, "approved")));
+    .where(and(eq(timeEntries.orgId, org.id), eq(timeEntries.employeeId, employeeId), eq(timeEntries.status, "approved"), isNull(timeEntries.deletedAt)));
 
   let total = 0;
   await db.transaction(async (tx) => {

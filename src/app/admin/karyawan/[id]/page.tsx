@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
   cashAdvances,
@@ -144,7 +144,7 @@ export default async function EmployeeDetailPage({
       ? await db
           .select()
           .from(timeEntries)
-          .where(eq(timeEntries.employeeId, id))
+          .where(and(eq(timeEntries.employeeId, id), isNull(timeEntries.deletedAt)))
           .orderBy(desc(timeEntries.clockInAt))
           .limit(20)
       : [];
