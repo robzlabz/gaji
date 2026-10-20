@@ -55,7 +55,7 @@ export async function clockInAction(formData: FormData) {
   const [open] = await db
     .select({ id: timeEntries.id })
     .from(timeEntries)
-    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt)))
+    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt), isNull(timeEntries.deletedAt)))
     .limit(1);
 
   if (open) fail("/employee", "Kamu masih clock in. Clock out dulu sebelum mulai sesi baru.");
@@ -126,7 +126,7 @@ export async function clockOutAction(formData: FormData) {
   const [open] = await db
     .select()
     .from(timeEntries)
-    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt)))
+    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt), isNull(timeEntries.deletedAt)))
     .limit(1);
 
   if (!open) fail("/employee", "Tidak ada sesi terbuka. Clock in dulu.");
@@ -192,7 +192,7 @@ export async function saveCaptureAction(input: {
   const [open] = await db
     .select()
     .from(timeEntries)
-    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt)))
+    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt), isNull(timeEntries.deletedAt)))
     .limit(1);
 
   if (!open) {

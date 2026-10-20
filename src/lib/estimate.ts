@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { db } from "@/db";
 import { cashAdvancePlans, cashAdvances, leaves, payRateHistory, timeEntries, workTasks } from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
@@ -64,6 +64,7 @@ export async function estimatePay(params: {
         and(
           eq(timeEntries.orgId, orgId),
           eq(timeEntries.employeeId, employee.id),
+          isNull(timeEntries.deletedAt),
           gte(timeEntries.workDate, period.start),
           lte(timeEntries.workDate, period.end),
         ),

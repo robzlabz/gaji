@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import { db } from "@/db";
 import {
   cashAdvancePlans,
@@ -89,6 +89,7 @@ export async function previewPayroll(
       and(
         eq(timeEntries.orgId, orgId),
         eq(timeEntries.status, "approved"),
+        isNull(timeEntries.deletedAt),
         gte(timeEntries.workDate, period.start),
         lte(timeEntries.workDate, period.end),
       ),

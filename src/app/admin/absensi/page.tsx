@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, timeEntries } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { decideTimeEntryAction, setTransportAmountAction } from "../actions";
+import { decideTimeEntryAction, deleteTimeEntryAction, editTimeEntryAction, setTransportAmountAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
@@ -45,6 +45,7 @@ export default async function AttendancePage({
       inLat: timeEntries.inLat,
       inLng: timeEntries.inLng,
       withinGeofence: timeEntries.withinGeofence,
+      deletedAt: timeEntries.deletedAt,
       employeeId: employees.id,
       employeeName: employees.fullName,
       payType: employees.payType,
@@ -55,6 +56,7 @@ export default async function AttendancePage({
     .where(
       and(
         eq(timeEntries.orgId, org.id),
+        isNull(timeEntries.deletedAt),
         gte(timeEntries.workDate, period.start),
         lte(timeEntries.workDate, period.end),
         statusFilter === "all" ? sql`true` : eq(timeEntries.status, statusFilter),
@@ -155,6 +157,35 @@ export default async function AttendancePage({
                         </StatusBadge>
                       </div>
                     </div>
+
+                    <details className="mt-3 rounded-lg border p-3">
+                      <summary className="cursor-pointer text-sm font-medium">Edit jam absensi</summary>
+                      <form action={editTimeEntryAction} className="mt-3 flex flex-col gap-2">
+                        <input type="hidden" name="entryId" value={row.id} />
+                        <input type="hidden" name="backTo" value={`/admin/absensi?status=${statusFilter}`} />
+                        <FormField label="Clock in">
+                          <Input type="datetime-local" name="clockInAt" required
+                            defaultValue={new Intl.DateTimeFormat("sv-SE", {
+                              timeZone: org.timezone, year: "numeric", month: "2-digit", day: "2-digit",
+                              hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+                            }).format(row.clockInAt).replace(" ", "T")} />
+                        </FormField>
+                        <FormField label="Clock out" hint="Kosongkan jika belum clock out.">
+                          <Input type="datetime-local" name="clockOutAt"
+                            defaultValue={row.clockOutAt ? new Intl.DateTimeFormat("sv-SE", {
+                              timeZone: org.timezone, year: "numeric", month: "2-digit", day: "2-digit",
+                              hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+                            }).format(row.clockOutAt).replace(" ", "T") : ""} />
+                        </FormField>
+                        <Button type="submit" variant="outline" size="sm" className="self-start">Simpan jam</Button>
+                      </form>
+                    </details>
+
+                    <form action={deleteTimeEntryAction} className="mt-2">
+                      <input type="hidden" name="entryId" value={row.id} />
+                      <input type="hidden" name="backTo" value={`/admin/absensi?status=${statusFilter}`} />
+                      <Button type="submit" variant="destructive" size="sm">Hapus absensi</Button>
+                    </form>
 
                     {(row.inPhoto || row.outPhoto) && (
                       <div className="mt-2 flex gap-2">

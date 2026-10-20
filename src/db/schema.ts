@@ -268,13 +268,14 @@ export const timeEntries = pgTable(
     approvedBy: uuid("approved_by").references(() => user.id, { onDelete: "set null" }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     rejectReason: text("reject_reason"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("time_entries_one_open")
       .on(t.employeeId)
-      .where(sql`clock_out_at is null`),
+      .where(sql`clock_out_at is null and deleted_at is null`),
     index("time_entries_org_date_idx").on(t.orgId, t.workDate),
     index("time_entries_emp_date_idx").on(t.employeeId, t.workDate),
   ],

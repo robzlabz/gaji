@@ -40,7 +40,7 @@ export default async function EmployeeHome({
   const [openEntry] = await db
     .select()
     .from(timeEntries)
-    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt)))
+    .where(and(eq(timeEntries.employeeId, employee.id), isNull(timeEntries.clockOutAt), isNull(timeEntries.deletedAt)))
     .limit(1);
 
   const periodEntries = await db
@@ -49,6 +49,7 @@ export default async function EmployeeHome({
     .where(
       and(
         eq(timeEntries.employeeId, employee.id),
+        isNull(timeEntries.deletedAt),
         gte(timeEntries.workDate, period.start),
         lte(timeEntries.workDate, period.end),
       ),
