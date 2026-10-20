@@ -3,16 +3,16 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, workTasks } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { createTaskAction, decideTaskAction } from "../actions";
+import { decideTaskAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { statusLabel } from "@/lib/labels";
 import { taskStatusTone } from "@/lib/task";
-import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { TaskDeleteButton } from "./task-delete-button";
 import {
   Table,
   TableBody,
@@ -72,47 +72,7 @@ export default async function TasksPage({
 
       <Flash ok={ok} err={err} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Buat tugas</CardTitle>
-          <CardDescription>Tentukan jumlah, satuan, dan tarif per satuan.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form action={createTaskAction} className="flex flex-col gap-3">
-            <FormField label="Judul tugas">
-              <Input name="title" placeholder="Potong 20 pcs bahan kaos" required />
-            </FormField>
-            <FormField label="Karyawan" hint="Kosongkan bila belum ditentukan">
-              <SelectInput name="employeeId" defaultValue="">
-                <option value="">— belum ditentukan —</option>
-                {staff.map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.fullName}
-                  </option>
-                ))}
-              </SelectInput>
-            </FormField>
-            <FormField label="Jumlah (qty)">
-              <Input name="qty" inputMode="decimal" defaultValue="1" />
-            </FormField>
-            <FormField label="Satuan">
-              <Input name="unit" defaultValue="tugas" />
-            </FormField>
-            <FormField label="Tarif per satuan (Rp)">
-              <Input name="unitRate" inputMode="numeric" placeholder="15000" required />
-            </FormField>
-            <FormField label="Tanggal kerja">
-              <Input type="date" name="workDate" defaultValue={today} />
-            </FormField>
-            <FormField label="Deskripsi">
-              <Input name="description" placeholder="opsional" />
-            </FormField>
-            <div>
-              <Button type="submit">Simpan tugas</Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <div><Button asChild><Link href="/admin/tugas/baru">+ Buat tugas</Link></Button></div>
 
       {requested.length > 0 && (
         <Card>
@@ -230,6 +190,7 @@ export default async function TasksPage({
                   <TableHead>Nilai</TableHead>
                   <TableHead>Tanggal</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -262,6 +223,12 @@ export default async function TasksPage({
                       <StatusBadge tone={taskStatusTone(task.status)}>
                         {statusLabel(task.status)}
                       </StatusBadge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button asChild variant="outline" size="sm"><Link href={`/admin/tugas/${task.id}`}>Ubah</Link></Button>
+                        <TaskDeleteButton taskId={task.id} taskTitle={task.title} />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
