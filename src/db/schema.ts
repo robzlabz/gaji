@@ -427,6 +427,7 @@ export const wageFloats = pgTable(
  * - `accrual` (−): upah harian (jam + ongkos) memotong saldo, sumber = time_entries
  * - `adjust`  (±): koreksi manual admin
  * - `settle`  (+): pelunasan tunai saat payroll difinalkan ketika saldo sudah minus
+ * - `kasbon`  (+): sisa kasbon yang dipindahkan admin ke saldo
  *
  * `rate_used` & `minutes` menyimpan kondisi **saat kejadian**, jadi kenaikan tarif
  * bulan depan tidak mengubah nilai accrual yang sudah tercatat.
@@ -663,5 +664,5 @@ export type PayType = "hourly" | "daily" | "monthly" | "per_task";
 export type LeaveKind = "cuti" | "sakit" | "izin";
 export type LeaveStatus = "pending" | "approved" | "rejected" | "void";
 export type Role = "owner" | "admin" | "employee";
-export type WageFloatTxnKind = "topup" | "accrual" | "adjust" | "settle";
+export type WageFloatTxnKind = "topup" | "accrual" | "adjust" | "settle" | "kasbon";
 export type RateHistoryKind = "wage" | "transport";

@@ -3,9 +3,15 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { cashAdvances, employees } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { createAdvanceAction, decideAdvanceAction, setAdvancePlanAction } from "../actions";
+import {
+  createAdvanceAction,
+  decideAdvanceAction,
+  setAdvancePlanAction,
+  transferAdvanceToSaldoAction,
+} from "../actions";
 import { Flash } from "@/components/flash";
 import { KasbonPlanList } from "@/components/kasbon-plan-list";
+import { KasbonToSaldoButton } from "@/components/kasbon-to-saldo-button";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
@@ -184,7 +190,10 @@ export default async function AdvancesPage({
       <Card>
         <CardHeader>
           <CardTitle>Daftar kasbon</CardTitle>
-          <CardDescription>Sisa saldo berkurang setiap kali dipotong dari payroll.</CardDescription>
+          <CardDescription>
+            Sisa saldo berkurang setiap kali dipotong dari payroll, atau dipindah ke saldo
+            karyawan supaya dibayar lewat kehadiran.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
@@ -252,6 +261,14 @@ export default async function AdvancesPage({
                             Tolak
                           </Button>
                         </form>
+                      )}
+                      {row.status === "approved" && toNumber(row.balance) > 0 && (
+                        <KasbonToSaldoButton
+                          advanceId={row.id}
+                          employeeName={row.employeeName}
+                          balance={toNumber(row.balance)}
+                          action={transferAdvanceToSaldoAction}
+                        />
                       )}
                     </TableCell>
                   </TableRow>

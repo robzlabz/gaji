@@ -3,6 +3,8 @@ import "server-only";
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  cashAdvanceTxns,
+  cashAdvances,
   employees,
   payRateHistory,
   timeEntries,
@@ -294,6 +296,90 @@ export async function adjustSaldo(
   });
   await bumpBalance(conn, floatRow.id, input.amount);
   return floatRow;
+}
+
+/** Kesalahan aturan bisnis pemindahan kasbon ke saldo. */
+export class SaldoTransferError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SaldoTransferError";
+  }
+}
+
+/**
+ * Pindahkan sisa kasbon karyawan ke saldo prabayar.
+ *
+ * Kasbon = karyawan **utang** ke owner dan dipotong dari slip; saldo = uang owner yang
+ * sudah di muka dan dipotong per kehadiran. Pemindahan ini membuat utang kasbon dibayar
+ * lewat kehadiran, bukan potongan slip. `balance` kasbon berkurang dan `status` menjadi
+ * `settled` saat sisanya habis.
+ */
+export async function transferAdvanceToSaldo(
+  conn: Conn,
+  input: {
+    orgId: string;
+    advanceId: string;
+    amount: number;
+    occurredAt: string;
+    userId?: string | null;
+  },
+) {
+  const [advance] = await conn
+    .select()
+    .from(cashAdvances)
+    .where(and(eq(cashAdvances.id, input.advanceId), eq(cashAdvances.orgId, input.orgId)))
+    .limit(1)
+    .for("update");
+
+  if (!advance) throw new SaldoTransferError("Kasbon tidak ditemukan.");
+  if (advance.status !== "approved") {
+    throw new SaldoTransferError("Hanya kasbon approved yang bisa dipindah.");
+  }
+
+  const balance = Math.round(toNumber(advance.balance));
+  const amount = Math.round(input.amount);
+  if (balance <= 0) throw new SaldoTransferError("Kasbon ini sudah lunas.");
+  if (amount <= 0) throw new SaldoTransferError("Nominal harus lebih dari 0.");
+  if (amount > balance) throw new SaldoTransferError("Nominal melebihi sisa kasbon.");
+
+  await conn.insert(cashAdvanceTxns).values({
+    cashAdvanceId: advance.id,
+    kind: "to_saldo",
+    amount: amount.toString(),
+    occurredAt: input.occurredAt,
+    note: "Dipindah ke saldo",
+    createdBy: input.userId ?? null,
+  });
+
+  await conn
+    .update(cashAdvances)
+    .set({
+      balance: sql`greatest(${cashAdvances.balance} - ${amount}, 0)`,
+      status: sql`case when ${cashAdvances.balance} - ${amount} <= 0 then 'settled' else ${cashAdvances.status} end`,
+    })
+    .where(eq(cashAdvances.id, advance.id));
+
+  const floatRow = await ensureFloat(conn, {
+    orgId: input.orgId,
+    employeeId: advance.employeeId,
+    forUpdate: true,
+  });
+  if (!floatRow) throw new SaldoTransferError("Saldo karyawan gagal dibuat.");
+
+  await conn.insert(wageFloatTxns).values({
+    orgId: input.orgId,
+    floatId: floatRow.id,
+    kind: "kasbon",
+    amount: amount.toString(),
+    occurredAt: input.occurredAt,
+    sourceTable: "cash_advances",
+    sourceId: advance.id,
+    note: "Pindahan dari kasbon",
+    createdBy: input.userId ?? null,
+  });
+  await bumpBalance(conn, floatRow.id, amount);
+
+  return { employeeId: advance.employeeId, amount, balanceAfter: balance - amount };
 }
 
 /**

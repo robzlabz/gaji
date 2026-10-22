@@ -20,7 +20,13 @@ export default async function EmployeeSaldoPage() {
   const accruals = history.txns.filter((txn) => txn.kind === "accrual");
   const lastAccrual = accruals[0];
   const totalReceived = history.txns
-    .filter((txn) => txn.kind === "topup" || txn.kind === "adjust" || txn.kind === "settle")
+    .filter(
+      (txn) =>
+        txn.kind === "topup" ||
+        txn.kind === "adjust" ||
+        txn.kind === "settle" ||
+        txn.kind === "kasbon",
+    )
     .reduce((sum, txn) => sum + toNumber(txn.amount), 0);
 
   return (
