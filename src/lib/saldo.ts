@@ -186,7 +186,8 @@ export function periodLedgerSummary(txns: SaldoTxnLike[], period: { start: strin
   for (const txn of txns) {
     if (txn.occurredAt < period.start || txn.occurredAt > period.end) continue;
     if (txn.kind === "accrual") accrualTotal += Math.abs(toNum(txn.amount));
-    else if (txn.kind === "topup" || txn.kind === "adjust") fundingInPeriod += toNum(txn.amount);
+    else if (txn.kind === "topup" || txn.kind === "adjust" || txn.kind === "kasbon")
+      fundingInPeriod += toNum(txn.amount);
   }
   return { accrualTotal, fundingInPeriod };
 }
@@ -201,7 +202,7 @@ export function daysLeftFromSaldo(balance: number, averageDailyAccrual: number):
 }
 
 /** Jenis transaksi saldo yang dikenal ledger. */
-export const SALDO_KINDS = ["topup", "accrual", "adjust", "settle"] as const;
+export const SALDO_KINDS = ["topup", "accrual", "adjust", "settle", "kasbon"] as const;
 export type SaldoKind = (typeof SALDO_KINDS)[number];
 
 /** Label bahasa Indonesia untuk jenis transaksi saldo. */
@@ -215,6 +216,8 @@ export function saldoKindLabel(kind: string): string {
       return "Koreksi manual";
     case "settle":
       return "Pelunasan tunai di slip";
+    case "kasbon":
+      return "Pindahan dari kasbon";
     default:
       return kind;
   }
@@ -224,6 +227,7 @@ export function saldoKindLabel(kind: string): string {
 export function saldoKindTone(kind: string): "good" | "warn" | "info" {
   switch (kind) {
     case "topup":
+    case "kasbon":
       return "good";
     case "settle":
       return "info";

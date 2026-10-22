@@ -68,7 +68,7 @@ export function registerOpsTools(server: McpServer) {
                   ca.principal::float8 as principal, ca.balance::float8 as balance,
                   ca.installment_amount::float8 as installment_amount, ca.requested_at, ca.status, ca.note,
                   coalesce((select sum(t.amount) from cash_advance_txns t
-                             where t.cash_advance_id = ca.id and t.kind in ('repay', 'deduct')), 0)::float8 as paid_total
+                             where t.cash_advance_id = ca.id and t.kind in ('repay', 'deduct', 'to_saldo')), 0)::float8 as paid_total
              from cash_advances ca join employees e on e.id = ca.employee_id
             where ${filters.join(" and ")}
             order by ca.requested_at`,
@@ -140,11 +140,11 @@ export function registerOpsTools(server: McpServer) {
     {
       title: "Buku kasbon (pinjam & potong)",
       description:
-        "Riwayat transaksi kasbon: kapan uang diberikan (`disburse`) dan kapan dipotong lewat slip gaji (`repay`), termasuk slip mana yang memotong. Dipakai untuk menjawab 'kasbon Rina sudah dipotong berapa kali / berapa total'.",
+        "Riwayat transaksi kasbon: kapan uang diberikan (`disburse`) dan kapan dipotong lewat slip gaji (`repay`), termasuk slip mana yang memotong, serta sisa kasbon yang dipindah admin ke saldo karyawan (`to_saldo`). Dipakai untuk menjawab 'kasbon Rina sudah dipotong berapa kali / berapa total'.",
       inputSchema: {
         ...ORG_ARG,
         employee: z.string().optional().describe("Batasi ke satu karyawan (nama/kode/id)."),
-        kind: z.enum(["disburse", "repay", "all"]).optional().describe("Default: all."),
+        kind: z.enum(["disburse", "repay", "to_saldo", "all"]).optional().describe("Default: all."),
         since: z.string().optional().describe("Hanya transaksi sejak tanggal ini (YYYY-MM-DD)."),
         limit: z.number().int().min(1).max(500).optional().describe("Default 100."),
       },
@@ -211,6 +211,7 @@ export function registerOpsTools(server: McpServer) {
 
       const disbursed = txns.filter((t) => t.kind === "disburse").reduce((s, t) => s + t.amount, 0);
       const repaid = txns.filter((t) => t.kind === "repay").reduce((s, t) => s + t.amount, 0);
+      const movedToSaldo = txns.filter((t) => t.kind === "to_saldo").reduce((s, t) => s + t.amount, 0);
 
       const perAdvance = new Map<
         string,
@@ -221,6 +222,7 @@ export function registerOpsTools(server: McpServer) {
           balance: number;
           disbursed: number;
           repaid: number;
+          movedToSaldo: number;
           txns: number;
         }
       >();
@@ -232,11 +234,13 @@ export function registerOpsTools(server: McpServer) {
           balance: num(row.balance),
           disbursed: 0,
           repaid: 0,
+          movedToSaldo: 0,
           txns: 0,
         };
         bucket.txns += 1;
         if (row.kind === "disburse") bucket.disbursed = round(bucket.disbursed + num(row.amount));
         if (row.kind === "repay") bucket.repaid = round(bucket.repaid + num(row.amount));
+        if (row.kind === "to_saldo") bucket.movedToSaldo = round(bucket.movedToSaldo + num(row.amount));
         perAdvance.set(row.advance_id, bucket);
       }
 
@@ -247,6 +251,7 @@ export function registerOpsTools(server: McpServer) {
           count: txns.length,
           disbursed: round(disbursed),
           repaid: round(repaid),
+          movedToSaldo: round(movedToSaldo),
           repayViaPayslip: txns.filter((t) => t.kind === "repay" && t.viaPayslip).length,
         },
         perAdvance: [...perAdvance.values()],

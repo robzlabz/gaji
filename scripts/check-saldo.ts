@@ -124,6 +124,13 @@ const recomputed = coverageForPeriod({
 });
 check("hitung ulang slip stabil setelah settle", [recomputed.covered, recomputed.shortfall], [120_000, 0]);
 
+/* 6b. pindahan kasbon menambah dana periode ------------------------------- */
+const kasbonSummary = periodLedgerSummary(
+  [{ kind: "kasbon", amount: "150000", occurredAt: "2026-10-28" }],
+  period,
+);
+check("pindahan kasbon dihitung sebagai dana", kasbonSummary.fundingInPeriod, 150_000);
+
 /* 7. tarif saat kejadian -------------------------------------------------- */
 const history = [
   { kind: "wage", payRate: "10000", effectiveFrom: "2026-01-01" },

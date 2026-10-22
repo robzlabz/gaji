@@ -27,8 +27,10 @@ import {
   adjustSaldo,
   reverseAccrual,
   revertSettlements,
+  SaldoTransferError,
   settleShortfall,
   topUpSaldo,
+  transferAdvanceToSaldo,
 } from "@/lib/saldo-server";
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { audit } from "@/lib/audit";
@@ -1089,6 +1091,57 @@ export async function decideAdvanceAction(formData: FormData) {
 
   revalidatePath("/admin/kasbon");
   ok("/admin/kasbon", decision === "approve" ? "Kasbon disetujui." : "Kasbon ditolak.");
+}
+
+/**
+ * Pindahkan sisa kasbon (sebagian/seluruhnya) ke saldo karyawan.
+ * Saldo karyawan bertambah, sisa kasbon berkurang; pelunasan berikutnya lewat
+ * potongan kehadiran, bukan potongan slip.
+ */
+export async function transferAdvanceToSaldoAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const advanceId = str(formData, "advanceId");
+  const amount = parseMoneyInput(formData.get("amount"));
+  const backTo = "/admin/kasbon";
+
+  let employeeId: string | null = null;
+  let errorMessage: string | null = null;
+
+  try {
+    const result = await db.transaction(async (tx) =>
+      transferAdvanceToSaldo(tx, {
+        orgId: org.id,
+        advanceId,
+        amount,
+        occurredAt: localDateString(new Date(), org.timezone),
+        userId: user.id,
+      }),
+    );
+    employeeId = result.employeeId;
+  } catch (error) {
+    if (error instanceof SaldoTransferError) errorMessage = error.message;
+    else throw error;
+  }
+
+  if (!employeeId) fail(backTo, errorMessage ?? "Kasbon tidak ditemukan.");
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "cash_advances",
+    entityId: advanceId,
+    action: "to_saldo",
+    diff: { amount, employeeId },
+  });
+
+  revalidatePath("/admin/kasbon");
+  revalidatePath("/admin/saldo");
+  revalidatePath(`/admin/saldo/${employeeId}`);
+  revalidatePath(`/admin/karyawan/${employeeId}`);
+  revalidatePath("/employee");
+  revalidatePath("/employee/saldo");
+  revalidatePath("/employee/kasbon");
+  ok(backTo, "Kasbon dipindah ke saldo.");
 }
 
 /* -------------------------------- payroll ----------------------------- */
