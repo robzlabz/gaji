@@ -4,13 +4,9 @@ import { employees, payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { PAY_TYPE_LABEL, toNumber } from "@/lib/format";
 import { DEDUCTION_LINE_KINDS } from "@/lib/payroll";
+import { csvCell } from "@/lib/csv";
 
 export const dynamic = "force-dynamic";
-
-function cell(value: string | number | null | undefined): string {
-  const text = value === null || value === undefined ? "" : String(value);
-  return /[",;\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 const DEDUCTION_KINDS = DEDUCTION_LINE_KINDS;
 
@@ -72,7 +68,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       "Net",
       "Status Slip",
     ]
-      .map(cell)
+      .map(csvCell)
       .join(","),
   );
 
@@ -98,7 +94,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     ];
 
     if (slipItems.length === 0) {
-      lines.push([...base, "", "", "", "", "", "", gross, deductions, net, slip.status].map(cell).join(","));
+      lines.push([...base, "", "", "", "", "", "", gross, deductions, net, slip.status].map(csvCell).join(","));
       continue;
     }
 
@@ -117,7 +113,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
           net,
           slip.status,
         ]
-          .map(cell)
+          .map(csvCell)
           .join(","),
       );
     }
@@ -125,7 +121,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
   lines.push(
     ["TOTAL", `${slips.length} slip`, "", "", "", "", "", "", "", "", "", totalGross, totalDeductions, totalNet, ""]
-      .map(cell)
+      .map(csvCell)
       .join(","),
   );
 
