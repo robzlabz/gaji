@@ -71,8 +71,13 @@ export default async function EmployeeEstimatePage() {
   const { approved, potential, counts } = estimate;
   const extraGross = Math.max(0, potential.gross - approved.gross);
   const hasLines = approved.lines.length > 0;
-  // Tugas hanya dibayar ke karyawan per tugas; absensi hanya dipakai tipe lain.
-  const perTask = employee.payType === "per_task";
+  // Tugas dibayar sebagai upah tambahan untuk semua tipe gaji, jadi yang menunggu
+  // bisa berasal dari absensi maupun tugas.
+  const pendingParts = [
+    counts.entriesPending > 0 ? `${counts.entriesPending} absensi` : null,
+    counts.tasksWaiting > 0 ? `${counts.tasksWaiting} tugas` : null,
+  ].filter((part): part is string => part !== null);
+  const hasTasks = counts.tasksApproved + counts.tasksWaiting + counts.tasksUnpriced > 0;
 
   return (
     <>
@@ -137,11 +142,8 @@ export default async function EmployeeEstimatePage() {
           <CardContent className="flex flex-col gap-2">
             <LineList computation={potential} />
             <p className="text-xs text-muted-foreground">
-              Selisih {rupiah(extraGross)} berasal dari{" "}
-              {perTask
-                ? `${counts.tasksWaiting} tugas`
-                : `${counts.entriesPending} absensi`}{" "}
-              yang belum diputuskan admin.
+              Selisih {rupiah(extraGross)} berasal dari {pendingParts.join(" dan ")} yang belum
+              diputuskan admin.
             </p>
           </CardContent>
         </Card>
@@ -151,22 +153,20 @@ export default async function EmployeeEstimatePage() {
         <CardHeader>
           <CardTitle>Status data periode ini</CardTitle>
           <CardDescription>
-            {perTask
-              ? `${counts.tasksApproved} tugas disetujui · ${counts.tasksWaiting} menunggu`
-              : `${counts.entriesApproved} absensi disetujui · ${counts.entriesPending} menunggu`}
+            {counts.entriesApproved} absensi disetujui · {counts.entriesPending} menunggu
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2 text-xs text-muted-foreground">
-          {perTask && counts.tasksUnpriced > 0 ? (
+          {hasTasks ? (
+            <p>
+              {counts.tasksApproved} tugas disetujui · {counts.tasksWaiting} menunggu — tugas yang
+              disetujui dibayar sebagai tambahan gaji.
+            </p>
+          ) : null}
+          {counts.tasksUnpriced > 0 ? (
             <p>
               {counts.tasksUnpriced} pengajuan tugas belum diisi harga oleh admin, jadi belum
               menambah estimasi.
-            </p>
-          ) : null}
-          {!perTask && counts.tasksApproved + counts.tasksUnpriced > 0 ? (
-            <p>
-              Tugas yang kamu kerjakan tidak menambah gaji tipe{" "}
-              {PAY_TYPE_LABEL[employee.payType] ?? employee.payType} — gajimu dihitung dari kehadiran.
             </p>
           ) : null}
           {approved.warnings.length > 0 ? (

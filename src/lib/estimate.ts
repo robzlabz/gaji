@@ -1,8 +1,18 @@
 import "server-only";
 
-import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, lte, ne, notExists } from "drizzle-orm";
 import { db } from "@/db";
-import { cashAdvancePlans, cashAdvances, leaves, payRateHistory, timeEntries, workTasks } from "@/db/schema";
+import {
+  cashAdvancePlans,
+  cashAdvances,
+  leaves,
+  payPeriods,
+  payRateHistory,
+  payslipItems,
+  payslips,
+  timeEntries,
+  workTasks,
+} from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
 import { advanceLabel, isAdvanceEligible, resolveAdvanceDeduction } from "@/lib/kasbon";
 import { rateAtDate } from "@/lib/saldo";
@@ -56,69 +66,99 @@ export async function estimatePay(params: {
 }): Promise<PayEstimate> {
   const { orgId, employee, period, overtimeMultiplier } = params;
 
-  const [entries, tasks, advances, plans, leaveRows, rateRows, saldo] = await Promise.all([
-    db
-      .select()
-      .from(timeEntries)
-      .where(
-        and(
-          eq(timeEntries.orgId, orgId),
-          eq(timeEntries.employeeId, employee.id),
-          isNull(timeEntries.deletedAt),
-          gte(timeEntries.workDate, period.start),
-          lte(timeEntries.workDate, period.end),
+  const [entries, tasks, carriedTasks, advances, plans, leaveRows, rateRows, saldo] =
+    await Promise.all([
+      db
+        .select()
+        .from(timeEntries)
+        .where(
+          and(
+            eq(timeEntries.orgId, orgId),
+            eq(timeEntries.employeeId, employee.id),
+            isNull(timeEntries.deletedAt),
+            gte(timeEntries.workDate, period.start),
+            lte(timeEntries.workDate, period.end),
+          ),
+        )
+        .orderBy(timeEntries.workDate),
+      db
+        .select()
+        .from(workTasks)
+        .where(
+          and(
+            eq(workTasks.orgId, orgId),
+            eq(workTasks.employeeId, employee.id),
+            gte(workTasks.workDate, period.start),
+            lte(workTasks.workDate, period.end),
+          ),
+        )
+        .orderBy(workTasks.workDate),
+      // Tugas lama yang telat disetujui: belum masuk slip non-void periode lain, jadi
+      // masih akan dibayar (sekarang atau saat periode ini difinalkan).
+      db
+        .select()
+        .from(workTasks)
+        .where(
+          and(
+            eq(workTasks.orgId, orgId),
+            eq(workTasks.employeeId, employee.id),
+            eq(workTasks.status, "approved"),
+            lt(workTasks.workDate, period.start),
+            notExists(
+              db
+                .select({ id: payslipItems.id })
+                .from(payslipItems)
+                .innerJoin(payslips, eq(payslipItems.payslipId, payslips.id))
+                .innerJoin(payPeriods, eq(payslips.payPeriodId, payPeriods.id))
+                .where(
+                  and(
+                    eq(payslipItems.sourceTable, "work_tasks"),
+                    eq(payslipItems.sourceId, workTasks.id),
+                    ne(payPeriods.status, "void"),
+                    ne(payPeriods.periodStart, period.start),
+                  ),
+                ),
+            ),
+          ),
+        )
+        .orderBy(workTasks.workDate),
+      db
+        .select()
+        .from(cashAdvances)
+        .where(
+          and(
+            eq(cashAdvances.orgId, orgId),
+            eq(cashAdvances.employeeId, employee.id),
+            eq(cashAdvances.status, "approved"),
+          ),
+        )
+        .orderBy(cashAdvances.requestedAt),
+      db
+        .select()
+        .from(cashAdvancePlans)
+        .where(and(eq(cashAdvancePlans.orgId, orgId), eq(cashAdvancePlans.periodStart, period.start))),
+      db
+        .select()
+        .from(leaves)
+        .where(
+          and(
+            eq(leaves.orgId, orgId),
+            eq(leaves.employeeId, employee.id),
+            inArray(leaves.status, ["pending", "approved"]),
+            lte(leaves.startDate, period.end),
+            gte(leaves.endDate, period.start),
+          ),
         ),
-      )
-      .orderBy(timeEntries.workDate),
-    db
-      .select()
-      .from(workTasks)
-      .where(
-        and(
-          eq(workTasks.orgId, orgId),
-          eq(workTasks.employeeId, employee.id),
-          gte(workTasks.workDate, period.start),
-          lte(workTasks.workDate, period.end),
-        ),
-      )
-      .orderBy(workTasks.workDate),
-    db
-      .select()
-      .from(cashAdvances)
-      .where(
-        and(
-          eq(cashAdvances.orgId, orgId),
-          eq(cashAdvances.employeeId, employee.id),
-          eq(cashAdvances.status, "approved"),
-        ),
-      )
-      .orderBy(cashAdvances.requestedAt),
-    db
-      .select()
-      .from(cashAdvancePlans)
-      .where(and(eq(cashAdvancePlans.orgId, orgId), eq(cashAdvancePlans.periodStart, period.start))),
-    db
-      .select()
-      .from(leaves)
-      .where(
-        and(
-          eq(leaves.orgId, orgId),
-          eq(leaves.employeeId, employee.id),
-          inArray(leaves.status, ["pending", "approved"]),
-          lte(leaves.startDate, period.end),
-          gte(leaves.endDate, period.start),
-        ),
-      ),
-    db
-      .select({
-        kind: payRateHistory.kind,
-        payRate: payRateHistory.payRate,
-        effectiveFrom: payRateHistory.effectiveFrom,
-      })
-      .from(payRateHistory)
-      .where(eq(payRateHistory.employeeId, employee.id)),
-    saldoForPeriod(db, { orgId, employeeId: employee.id, period }),
-  ]);
+      db
+        .select({
+          kind: payRateHistory.kind,
+          payRate: payRateHistory.payRate,
+          effectiveFrom: payRateHistory.effectiveFrom,
+        })
+        .from(payRateHistory)
+        .where(eq(payRateHistory.employeeId, employee.id)),
+      saldoForPeriod(db, { orgId, employeeId: employee.id, period }),
+    ]);
 
   const planByAdvance = new Map(plans.map((plan) => [plan.cashAdvanceId, plan]));
 
@@ -166,20 +206,31 @@ export async function estimatePay(params: {
           transportAmount: entry.transportAmount,
           rateAt: rateAtDate(rateRows, entry.workDate, "wage", employee.payRate),
         })),
-      tasks: tasks
-        .filter((task) =>
-          includePending
-            ? task.status === "approved" || task.status === "done"
-            : task.status === "approved",
-        )
-        .map((task) => ({
+      tasks: [
+        ...tasks
+          .filter((task) =>
+            includePending
+              ? task.status === "approved" || task.status === "done"
+              : task.status === "approved",
+          )
+          .map((task) => ({
+            id: task.id,
+            title: task.title,
+            qty: task.qty,
+            unit: task.unit,
+            unitRate: task.unitRate,
+            workDate: task.workDate,
+          })),
+        ...carriedTasks.map((task) => ({
           id: task.id,
           title: task.title,
           qty: task.qty,
           unit: task.unit,
           unitRate: task.unitRate,
           workDate: task.workDate,
+          carriedOver: true,
         })),
+      ],
       advances: advanceInputs,
       leaves: leaveInputs,
       // Estimasi tetap memakai angka saldo yang benar-benar tercatat (approved saja);
@@ -194,7 +245,8 @@ export async function estimatePay(params: {
     counts: {
       entriesApproved: entries.filter((entry) => entry.status === "approved").length,
       entriesPending: entries.filter((entry) => entry.status === "pending").length,
-      tasksApproved: tasks.filter((task) => task.status === "approved").length,
+      tasksApproved:
+        tasks.filter((task) => task.status === "approved").length + carriedTasks.length,
       tasksWaiting: tasks.filter((task) => task.status === "done").length,
       tasksUnpriced: tasks.filter((task) => task.status === "requested").length,
       leavesApproved: leaveRows.filter((leave) => leave.status === "approved").length,

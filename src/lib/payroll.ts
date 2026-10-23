@@ -55,6 +55,8 @@ export type TaskInput = {
   unit: string;
   unitRate: string | number;
   workDate: string;
+  /** Tugas disetujui terlambat: upahnya baru dibayar di periode berikutnya. */
+  carriedOver?: boolean;
 };
 
 export type AdvanceInput = {
@@ -291,22 +293,27 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     });
   }
 
-  if (input.payType === "per_task") {
-    for (const task of input.tasks) {
-      const qty = toNumber(task.qty);
-      const unitRate = toNumber(task.unitRate);
-      lines.push({
-        kind: "task",
-        label: task.title,
-        qty,
-        unit: task.unit,
-        unitRate,
-        amount: Math.round(qty * unitRate),
-        sourceTable: "work_tasks",
-        sourceId: task.id,
-        meta: { workDate: task.workDate },
-      });
-    }
+  // Tugas yang disetujui admin adalah upah tambahan untuk semua tipe gaji: karyawan
+  // per tugas memakainya sebagai penghasilan utama, tipe lain sebagai pendapatan ekstra
+  // di samping gaji pokok. Tugas yang telat disetujui dibayar di periode berikutnya
+  // (ditandai `carriedOver`) supaya tidak ada upah yang hilang.
+  for (const task of input.tasks) {
+    const qty = toNumber(task.qty);
+    const unitRate = toNumber(task.unitRate);
+    const baseLabel = input.payType === "per_task" ? task.title : `Tugas: ${task.title}`;
+    lines.push({
+      kind: "task",
+      label: task.carriedOver ? `${baseLabel} (dari periode sebelumnya)` : baseLabel,
+      qty,
+      unit: task.unit,
+      unitRate,
+      amount: Math.round(qty * unitRate),
+      sourceTable: "work_tasks",
+      sourceId: task.id,
+      meta: task.carriedOver
+        ? { workDate: task.workDate, carriedOver: true }
+        : { workDate: task.workDate },
+    });
   }
 
   let gross = 0;

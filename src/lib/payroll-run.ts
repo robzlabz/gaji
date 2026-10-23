@@ -1,13 +1,16 @@
 import "server-only";
 
-import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, lte, ne, notExists } from "drizzle-orm";
 import { db } from "@/db";
 import {
   cashAdvancePlans,
   cashAdvances,
   employees,
   leaves,
+  payPeriods,
   payRateHistory,
+  payslipItems,
+  payslips,
   timeEntries,
   wageFloats,
   wageFloatTxns,
@@ -108,6 +111,35 @@ export async function previewPayroll(
         eq(workTasks.status, "approved"),
         gte(workTasks.workDate, period.start),
         lte(workTasks.workDate, period.end),
+      ),
+    );
+
+  // Tugas dari periode lama yang baru disetujui setelah payroll periode itu difinalkan:
+  // belum pernah masuk slip mana pun (selain periode yang sedang dihitung — slip lama
+  // periode ini masih ada saat recalculate) sehingga dibayar sekarang sebagai bawaan.
+  const carriedTasks = await conn
+    .select()
+    .from(workTasks)
+    .where(
+      and(
+        eq(workTasks.orgId, orgId),
+        eq(workTasks.status, "approved"),
+        lt(workTasks.workDate, period.start),
+        notExists(
+          conn
+            .select({ id: payslipItems.id })
+            .from(payslipItems)
+            .innerJoin(payslips, eq(payslipItems.payslipId, payslips.id))
+            .innerJoin(payPeriods, eq(payslips.payPeriodId, payPeriods.id))
+            .where(
+              and(
+                eq(payslipItems.sourceTable, "work_tasks"),
+                eq(payslipItems.sourceId, workTasks.id),
+                ne(payPeriods.status, "void"),
+                ne(payPeriods.periodStart, period.start),
+              ),
+            ),
+        ),
       ),
     );
 
@@ -274,16 +306,29 @@ export async function previewPayroll(
             employee.payRate,
           ),
         })),
-      tasks: tasks
-        .filter((task) => task.employeeId === employee.id)
-        .map((task) => ({
-          id: task.id,
-          title: task.title,
-          qty: task.qty,
-          unit: task.unit,
-          unitRate: task.unitRate,
-          workDate: task.workDate,
-        })),
+      tasks: [
+        ...tasks
+          .filter((task) => task.employeeId === employee.id)
+          .map((task) => ({
+            id: task.id,
+            title: task.title,
+            qty: task.qty,
+            unit: task.unit,
+            unitRate: task.unitRate,
+            workDate: task.workDate,
+          })),
+        ...carriedTasks
+          .filter((task) => task.employeeId === employee.id)
+          .map((task) => ({
+            id: task.id,
+            title: task.title,
+            qty: task.qty,
+            unit: task.unit,
+            unitRate: task.unitRate,
+            workDate: task.workDate,
+            carriedOver: true,
+          })),
+      ],
       advances: resolved.map((item) => ({
         id: item.advance.id,
         balance: item.advance.balance,
