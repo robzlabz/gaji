@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -17,6 +17,7 @@ import {
   payRateHistory,
   payslipItems,
   payslips,
+  session,
   timeEntries,
   workTasks,
 } from "@/db/schema";
@@ -257,46 +258,87 @@ export async function updateEmployeeAction(formData: FormData) {
   const isActive = str(formData, "isActive") === "on";
   const endedAt = optionalStr(formData, "endedAt");
 
-  await db
-    .update(employees)
-    .set({
-      fullName,
-      code,
-      payType,
-      payRate: payRate.toString(),
-      transportRate: transportRate.toString(),
-      isActive,
-      endedAt,
-    })
-    .where(eq(employees.id, employeeId));
-
   const rateChanged =
     payType !== current.payType || payRate !== toNumber(current.payRate);
-
-  if (rateChanged) {
-    await db.insert(payRateHistory).values({
-      employeeId,
-      kind: "wage",
-      payType,
-      payRate: payRate.toString(),
-      effectiveFrom: new Date().toISOString().slice(0, 10),
-      createdBy: user.id,
-    });
-  }
-
   // Tarif ongkos juga punya riwayat: kenaikan tarif tidak boleh mengubah
   // kedatangan yang sudah lewat (nilai per absensi sudah tersimpan).
   const transportChanged = transportRate !== toNumber(current.transportRate);
-  if (transportChanged) {
-    await db.insert(payRateHistory).values({
-      employeeId,
-      kind: "transport",
-      payType,
-      payRate: transportRate.toString(),
-      effectiveFrom: new Date().toISOString().slice(0, 10),
-      createdBy: user.id,
-    });
-  }
+
+  const justDeactivated = current.isActive && !isActive;
+  const targetUserId = current.userId;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(employees)
+      .set({
+        fullName,
+        code,
+        payType,
+        payRate: payRate.toString(),
+        transportRate: transportRate.toString(),
+        isActive,
+        endedAt,
+      })
+      .where(eq(employees.id, employeeId));
+
+    if (rateChanged) {
+      await tx.insert(payRateHistory).values({
+        employeeId,
+        kind: "wage",
+        payType,
+        payRate: payRate.toString(),
+        effectiveFrom: new Date().toISOString().slice(0, 10),
+        createdBy: user.id,
+      });
+    }
+
+    if (transportChanged) {
+      await tx.insert(payRateHistory).values({
+        employeeId,
+        kind: "transport",
+        payType,
+        payRate: transportRate.toString(),
+        effectiveFrom: new Date().toISOString().slice(0, 10),
+        createdBy: user.id,
+      });
+    }
+
+    // Menonaktifkan karyawan berarti mencabut akses loginnya, kecuali user itu
+    // masih punya membership admin/owner di organisasi mana pun, atau masih
+    // karyawan aktif di organisasi lain (baris employees lain dengan isActive=true).
+    // Penghapusan sesi ikut transaksi ini supaya status nonaktif dan pencabutan
+    // token tidak terpisah.
+    if (justDeactivated && targetUserId) {
+      const [adminMembership] = await tx
+        .select({ id: memberships.id })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.userId, targetUserId),
+            inArray(memberships.role, ["owner", "admin"]),
+          ),
+        )
+        .limit(1);
+
+      if (!adminMembership) {
+        const [otherActiveEmployee] = await tx
+          .select({ id: employees.id })
+          .from(employees)
+          .where(
+            and(
+              eq(employees.userId, targetUserId),
+              eq(employees.isActive, true),
+              ne(employees.id, employeeId),
+            ),
+          )
+          .limit(1);
+
+        if (!otherActiveEmployee) {
+          await tx.delete(session).where(eq(session.userId, targetUserId));
+        }
+      }
+    }
+  });
 
   await audit({
     orgId: org.id,

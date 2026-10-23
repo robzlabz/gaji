@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, memberships, user } from "@/db/schema";
 import { getSession, isAdminRole } from "@/lib/session";
@@ -24,6 +24,10 @@ export type LoginAccount =
 /** Pesan seragam untuk nomor yang tidak punya akun — jangan bocorkan detail lain. */
 const NOT_REGISTERED =
   "Nomor HP ini tidak memiliki akun atau belum terdaftar. Pastikan nomornya benar, atau minta admin perusahaan mendaftarkanmu.";
+
+/** Pesan seragam untuk akun tanpa akses aktif — status karyawan tidak ikut terbaca. */
+const NO_ACCESS =
+  "Nomor HP ini belum terhubung ke perusahaan mana pun. Minta admin menambahkanmu sebagai karyawan.";
 
 /**
  * Langkah 1 halaman masuk: cek apakah nomor HP punya akun, tanpa meminta PIN.
@@ -51,25 +55,22 @@ export async function findLoginAccount(rawPhone: string, dialCode = "62"): Promi
     .from(memberships)
     .where(eq(memberships.userId, account.id));
 
-  const [employeeRow] = await db
+  const [activeEmployee] = await db
     .select({ id: employees.id })
     .from(employees)
-    .where(eq(employees.userId, account.id))
+    .where(and(eq(employees.userId, account.id), eq(employees.isActive, true)))
     .limit(1);
 
   const adminRole = roleRows.find((row) => isAdminRole(row.role))?.role;
-  const staffRole = roleRows.find((row) => !isAdminRole(row.role))?.role;
 
-  if (!adminRole && !staffRole && !employeeRow) {
-    return {
-      ok: false,
-      message:
-        "Nomor HP ini belum terhubung ke perusahaan mana pun. Minta admin menambahkanmu sebagai karyawan.",
-    };
+  // Karyawan nonaktif tidak dihitung punya akses. Pesannya disamakan dengan akun
+  // tanpa akses supaya status kepegawaian tidak bisa ditebak dari halaman masuk.
+  if (!adminRole && !activeEmployee) {
+    return { ok: false, message: NO_ACCESS };
   }
 
   // Owner/admin menang atas data karyawan: owner yang ikut absen tetap masuk dashboard admin.
-  const role = adminRole ?? staffRole ?? "employee";
+  const role = adminRole ?? "employee";
 
   return {
     ok: true,

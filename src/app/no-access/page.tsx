@@ -16,6 +16,10 @@ export default function NoAccessPage() {
             Akunmu belum terdaftar sebagai anggota perusahaan mana pun. Minta admin menambahkan
             nomor HP kamu sebagai karyawan.
           </CardDescription>
+          <p className="text-sm text-muted-foreground">
+            Jika akunmu baru dinonaktifkan sebagai karyawan, hubungi admin perusahaan untuk
+            mengaktifkannya kembali.
+          </p>
         </CardHeader>
         <CardContent>
           <Button asChild variant="outline" className="w-full">

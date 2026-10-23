@@ -91,7 +91,15 @@ export async function requireEmployee(): Promise<EmployeeContext> {
   const [employee] = await db
     .select()
     .from(employees)
-    .where(and(eq(employees.orgId, ctx.org.id), eq(employees.userId, ctx.user.id)))
+    .where(
+      and(
+        eq(employees.orgId, ctx.org.id),
+        eq(employees.userId, ctx.user.id),
+        // Karyawan nonaktif diperlakukan sama seperti tidak punya baris karyawan:
+        // akses dashboard karyawan ikut dicabut, bukan hanya disembunyikan di UI.
+        eq(employees.isActive, true),
+      ),
+    )
     .limit(1);
 
   if (!employee) {
