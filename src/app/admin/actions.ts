@@ -35,6 +35,7 @@ import {
 } from "@/lib/saldo-server";
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { audit } from "@/lib/audit";
+import { requireOrgEmployee } from "@/lib/org-employee";
 import { previewPayroll, type PayrollRow } from "@/lib/payroll-run";
 import { ORG_COOKIE, requireAdmin } from "@/lib/session";
 import {
@@ -239,11 +240,7 @@ export async function updateEmployeeAction(formData: FormData) {
   const employeeId = str(formData, "employeeId");
   const backTo = str(formData, "backTo") || `/admin/karyawan/${employeeId}`;
 
-  const [current] = await db
-    .select()
-    .from(employees)
-    .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)))
-    .limit(1);
+  const current = await requireOrgEmployee(db, org.id, employeeId);
 
   if (!current) fail("/admin/karyawan", "Karyawan tidak ditemukan.");
 
@@ -257,6 +254,7 @@ export async function updateEmployeeAction(formData: FormData) {
     : toNumber(current.transportRate);
   const isActive = str(formData, "isActive") === "on";
   const endedAt = optionalStr(formData, "endedAt");
+
 
   const rateChanged =
     payType !== current.payType || payRate !== toNumber(current.payRate);
@@ -279,7 +277,7 @@ export async function updateEmployeeAction(formData: FormData) {
         isActive,
         endedAt,
       })
-      .where(eq(employees.id, employeeId));
+      .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)));
 
     if (rateChanged) {
       await tx.insert(payRateHistory).values({
@@ -359,11 +357,7 @@ export async function resetPinAction(formData: FormData) {
   const pin = str(formData, "pin");
   const backTo = str(formData, "backTo") || `/admin/karyawan/${employeeId}`;
 
-  const [employee] = await db
-    .select()
-    .from(employees)
-    .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)))
-    .limit(1);
+  const employee = await requireOrgEmployee(db, org.id, employeeId);
 
   if (!employee?.userId) fail(backTo, "Karyawan ini tidak punya akun login.");
 
@@ -394,11 +388,7 @@ export async function createContractAction(formData: FormData) {
   // Sukses kembali ke daftar kontrak (atau halaman asal), error tetap di form.
   const successTo = adminPath(formData, "successTo", "/admin/kontrak");
 
-  const [employee] = await db
-    .select()
-    .from(employees)
-    .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)))
-    .limit(1);
+  const employee = await requireOrgEmployee(db, org.id, employeeId);
 
   if (!employee) fail(backTo, "Karyawan tidak ditemukan.");
 
@@ -418,7 +408,7 @@ export async function createContractAction(formData: FormData) {
     const active = await db
       .select({ startDate: contracts.startDate, endDate: contracts.endDate })
       .from(contracts)
-      .where(and(eq(contracts.employeeId, employeeId), eq(contracts.status, "active")));
+      .where(and(eq(contracts.orgId, org.id), eq(contracts.employeeId, employeeId), eq(contracts.status, "active")));
 
     const newEnd = endDate ?? "9999-12-31";
     const overlap = active.find(
@@ -462,7 +452,7 @@ export async function createContractAction(formData: FormData) {
     await db
       .update(employees)
       .set({ payType, payRate: payRate.toString() })
-      .where(eq(employees.id, employeeId));
+      .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)));
 
     await db.insert(payRateHistory).values({
       employeeId,
@@ -501,11 +491,7 @@ export async function updateContractAction(formData: FormData) {
 
   if (!current) fail("/admin/kontrak", "Kontrak tidak ditemukan.");
 
-  const [employee] = await db
-    .select()
-    .from(employees)
-    .where(and(eq(employees.id, current.employeeId), eq(employees.orgId, org.id)))
-    .limit(1);
+  const employee = await requireOrgEmployee(db, org.id, current.employeeId);
 
   if (!employee) fail("/admin/kontrak", "Karyawan kontrak ini tidak ditemukan.");
 
@@ -565,7 +551,7 @@ export async function updateContractAction(formData: FormData) {
     await db
       .update(employees)
       .set({ payType, payRate: payRate.toString() })
-      .where(eq(employees.id, employee.id));
+      .where(and(eq(employees.id, employee.id), eq(employees.orgId, org.id)));
 
     await db.insert(payRateHistory).values({
       employeeId: employee.id,
@@ -627,8 +613,9 @@ export async function decideTimeEntryAction(formData: FormData) {
 
   if (!["approve", "reject"].includes(decision)) fail("/admin/absensi", "Aksi tidak dikenal.");
 
+  let found = false;
   await db.transaction(async (tx) => {
-    await tx
+    const [updated] = await tx
       .update(timeEntries)
       .set({
         status: decision === "approve" ? "approved" : "rejected",
@@ -639,7 +626,13 @@ export async function decideTimeEntryAction(formData: FormData) {
         ...(Number.isFinite(overtimeMinutes) && overtimeMinutes >= 0 ? { overtimeMinutes } : {}),
         ...(hasTransport ? { transportAmount: transportAmount.toString() } : {}),
       })
-      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id), isNull(timeEntries.deletedAt)));
+      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id), isNull(timeEntries.deletedAt)))
+      .returning({ id: timeEntries.id });
+
+    // Tidak ada baris yang cocok = absensi tidak ada / bukan milik org ini.
+    // Jangan sentuh saldo sama sekali.
+    if (!updated) return;
+    found = true;
 
     // Saldo dipotong di titik ini: hanya absensi yang sudah disetujui yang boleh
     // mengurangi uang muka. Menolak absensi berarti accrual-nya dibatalkan.
@@ -647,9 +640,11 @@ export async function decideTimeEntryAction(formData: FormData) {
       const result = await accrueForEntry(tx, { orgId: org.id, entryId, userId: user.id });
       if (!result.ok) throw new Error(result.message);
     } else {
-      await reverseAccrual(tx, entryId);
+      await reverseAccrual(tx, org.id, entryId);
     }
   });
+
+  if (!found) fail("/admin/absensi", "Absensi tidak ditemukan.");
 
   await audit({
     orgId: org.id,
@@ -692,7 +687,7 @@ export async function setTransportAmountAction(formData: FormData) {
     await tx
       .update(timeEntries)
       .set({ transportAmount: amount.toString() })
-      .where(eq(timeEntries.id, entryId));
+      .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)));
 
     if (entry.status === "approved") {
       const result = await accrueForEntry(tx, { orgId: org.id, entryId, userId: user.id });
@@ -785,7 +780,7 @@ export async function deleteTimeEntryAction(formData: FormData) {
   if (!entry) fail(backTo, "Absensi tidak ditemukan.");
 
   await db.transaction(async (tx) => {
-    if (entry.status === "approved") await reverseAccrual(tx, entryId);
+    if (entry.status === "approved") await reverseAccrual(tx, org.id, entryId);
     await tx.update(timeEntries).set({ deletedAt: new Date() })
       .where(and(eq(timeEntries.id, entryId), eq(timeEntries.orgId, org.id)));
   });
@@ -810,6 +805,7 @@ export async function topUpSaldoAction(formData: FormData) {
   const occurredAt = str(formData, "occurredAt") || localDateString(new Date(), org.timezone);
 
   if (!employeeId) fail(backTo, "Pilih karyawan.");
+  if (!(await requireOrgEmployee(db, org.id, employeeId))) fail(backTo, "Karyawan tidak ditemukan.");
   if (amount <= 0) fail(backTo, "Nominal top up harus lebih dari 0.");
 
   await db.transaction(async (tx) => {
@@ -849,6 +845,7 @@ export async function adjustSaldoAction(formData: FormData) {
   const occurredAt = str(formData, "occurredAt") || localDateString(new Date(), org.timezone);
 
   if (!employeeId) fail(backTo, "Pilih karyawan.");
+  if (!(await requireOrgEmployee(db, org.id, employeeId))) fail(backTo, "Karyawan tidak ditemukan.");
   if (nominal <= 0) fail(backTo, "Nominal koreksi harus lebih dari 0.");
 
   const amount = direction * nominal;
@@ -889,6 +886,8 @@ export async function resyncSaldoAction(formData: FormData) {
   const employeeId = str(formData, "employeeId");
   const backTo = str(formData, "backTo") || "/admin/saldo";
 
+  if (!(await requireOrgEmployee(db, org.id, employeeId))) fail(backTo, "Karyawan tidak ditemukan.");
+
   const entries = await db
     .select({ id: timeEntries.id })
     .from(timeEntries)
@@ -928,6 +927,9 @@ export async function createTaskAction(formData: FormData) {
 
   if (!title) fail("/admin/tugas", "Judul tugas wajib diisi.");
   if (unitRate <= 0) fail("/admin/tugas", "Tarif per unit harus lebih dari 0.");
+  if (employeeId && !(await requireOrgEmployee(db, org.id, employeeId))) {
+    fail("/admin/tugas", "Karyawan tidak ditemukan.");
+  }
 
   const [task] = await db
     .insert(workTasks)
@@ -971,8 +973,7 @@ export async function updateTaskAction(formData: FormData) {
   if (unitRate <= 0) fail(`/admin/tugas/${taskId}`, "Tarif per unit harus lebih dari 0.");
   if (!workDate) fail(`/admin/tugas/${taskId}`, "Tanggal kerja wajib diisi.");
   if (employeeId) {
-    const [employee] = await db.select({ id: employees.id }).from(employees)
-      .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id))).limit(1);
+    const employee = await requireOrgEmployee(db, org.id, employeeId);
     if (!employee) fail(`/admin/tugas/${taskId}`, "Karyawan tidak ditemukan.");
   }
   const [task] = await db.select({ id: workTasks.id, title: workTasks.title }).from(workTasks)
@@ -1057,6 +1058,7 @@ export async function createAdvanceAction(formData: FormData) {
   const backTo = str(formData, "backTo") || "/admin/kasbon";
 
   if (!employeeId) fail(backTo, "Pilih karyawan.");
+  if (!(await requireOrgEmployee(db, org.id, employeeId))) fail(backTo, "Karyawan tidak ditemukan.");
   if (principal <= 0) fail(backTo, "Nominal kasbon harus lebih dari 0.");
   if (installment > principal) fail(backTo, "Cicilan tidak boleh melebihi pokok kasbon.");
 
@@ -1105,7 +1107,7 @@ export async function decideAdvanceAction(formData: FormData) {
       await tx
         .update(cashAdvances)
         .set({ status: "approved", approvedBy: user.id, approvedAt: new Date() })
-        .where(eq(cashAdvances.id, advanceId));
+        .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)));
 
       await tx.insert(cashAdvanceTxns).values({
         cashAdvanceId: advanceId,
@@ -1120,7 +1122,7 @@ export async function decideAdvanceAction(formData: FormData) {
     await db
       .update(cashAdvances)
       .set({ status: "rejected", approvedBy: user.id, approvedAt: new Date() })
-      .where(eq(cashAdvances.id, advanceId));
+      .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)));
   }
 
   await audit({
@@ -1307,7 +1309,7 @@ async function writePayrollSlips(
           balance: sql`greatest(${cashAdvances.balance} - ${line.amount}, 0)`,
           status: sql`case when ${cashAdvances.balance} - ${line.amount} <= 0 then 'settled' else ${cashAdvances.status} end`,
         })
-        .where(eq(cashAdvances.id, line.sourceId));
+        .where(and(eq(cashAdvances.id, line.sourceId), eq(cashAdvances.orgId, input.orgId)));
     }
 
     // Saldo prabayar: kalau saldo tidak cukup menutup upah periode ini, kekurangannya
@@ -1327,11 +1329,11 @@ async function writePayrollSlips(
 }
 
 /** Kembalikan saldo kasbon yang sempat dipotong oleh slip periode ini. */
-async function revertPayrollSettlements(tx: Tx, periodId: string) {
+async function revertPayrollSettlements(tx: Tx, orgId: string, periodId: string) {
   const slips = await tx
     .select({ id: payslips.id })
     .from(payslips)
-    .where(eq(payslips.payPeriodId, periodId));
+    .where(and(eq(payslips.payPeriodId, periodId), eq(payslips.orgId, orgId)));
 
   const slipIds = slips.map((slip) => slip.id);
   if (slipIds.length === 0) return;
@@ -1349,12 +1351,12 @@ async function revertPayrollSettlements(tx: Tx, periodId: string) {
         balance: sql`${cashAdvances.balance} + ${repayment.amount}`,
         status: "approved",
       })
-      .where(eq(cashAdvances.id, repayment.cashAdvanceId));
+      .where(and(eq(cashAdvances.id, repayment.cashAdvanceId), eq(cashAdvances.orgId, orgId)));
     await tx.delete(cashAdvanceTxns).where(eq(cashAdvanceTxns.id, repayment.id));
   }
 
   // Pelunasan tunai kekurangan saldo ikut dibatalkan: slip akan dihitung ulang.
-  await revertSettlements(tx, slipIds);
+  await revertSettlements(tx, orgId, slipIds);
 }
 
 /* -------------------------------- cuti -------------------------------- */
@@ -1373,6 +1375,7 @@ function dateField(fd: FormData, key: string): string | null {
  * `exceptId` dipakai saat mengubah cuti supaya barisnya sendiri tidak dianggap bentrok.
  */
 async function findLeaveOverlap(
+  orgId: string,
   employeeId: string,
   startDate: string,
   endDate: string,
@@ -1383,6 +1386,7 @@ async function findLeaveOverlap(
     .from(leaves)
     .where(
       and(
+        eq(leaves.orgId, orgId),
         eq(leaves.employeeId, employeeId),
         inArray(leaves.status, ["pending", "approved"]),
         lte(leaves.startDate, endDate),
@@ -1407,11 +1411,7 @@ export async function createLeaveAction(formData: FormData) {
   const successTo = adminPath(formData, "successTo", "/admin/cuti");
   const employeeId = str(formData, "employeeId");
 
-  const [employee] = await db
-    .select()
-    .from(employees)
-    .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)))
-    .limit(1);
+  const employee = await requireOrgEmployee(db, org.id, employeeId);
 
   if (!employee) fail(backTo, "Karyawan tidak ditemukan.");
   if (employee.payType !== "monthly") {
@@ -1428,7 +1428,7 @@ export async function createLeaveAction(formData: FormData) {
   const days = leaveWorkDays(startDate, endDate);
   if (days === 0) fail(backTo, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
 
-  const overlap = await findLeaveOverlap(employee.id, startDate, endDate);
+  const overlap = await findLeaveOverlap(org.id, employee.id, startDate, endDate);
   if (overlap) fail(backTo, overlapMessage(overlap));
 
   const [row] = await db
@@ -1493,7 +1493,7 @@ export async function updateLeaveAction(formData: FormData) {
   const days = leaveWorkDays(startDate, endDate);
   if (days === 0) fail(backTo, "Rentang itu tidak memuat hari kerja (Senin–Sabtu).");
 
-  const overlap = await findLeaveOverlap(row.leave.employeeId, startDate, endDate, row.leave.id);
+  const overlap = await findLeaveOverlap(org.id, row.leave.employeeId, startDate, endDate, row.leave.id);
   if (overlap) fail(backTo, overlapMessage(overlap));
 
   const kind = normalizeLeaveKind(str(formData, "kind"));
@@ -1715,7 +1715,7 @@ export async function recalculatePayrollDraftAction(formData: FormData) {
     fail(`/admin/payroll/${periodId}`, "Hanya draft yang bisa dihitung ulang.");
 
   const payable = await db.transaction(async (tx) => {
-    await revertPayrollSettlements(tx, periodId);
+    await revertPayrollSettlements(tx, org.id, periodId);
 
     // Re-read kasbon after restoring this draft's repayments. Fully paid advances
     // must be eligible for the replacement preview before their balances are cut again.
@@ -1828,7 +1828,7 @@ export async function deletePayrollDraftAction(formData: FormData) {
   if (period.status !== "draft") fail(`/admin/payroll/${periodId}`, "Hanya draft yang bisa dihapus.");
 
   await db.transaction(async (tx) => {
-    await revertPayrollSettlements(tx, periodId);
+    await revertPayrollSettlements(tx, org.id, periodId);
     await tx.delete(payPeriods).where(eq(payPeriods.id, periodId));
   });
 

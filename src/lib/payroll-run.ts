@@ -184,7 +184,7 @@ export async function previewPayroll(
           occurredAt: wageFloatTxns.occurredAt,
         })
         .from(wageFloatTxns)
-        .where(inArray(wageFloatTxns.floatId, floats.map((row) => row.id)))
+        .where(and(eq(wageFloatTxns.orgId, orgId), inArray(wageFloatTxns.floatId, floats.map((row) => row.id))))
     : [];
 
   const txnsByFloat = new Map<string, typeof saldoTxns>();

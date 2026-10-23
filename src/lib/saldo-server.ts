@@ -12,6 +12,7 @@ import {
   wageFloatTxns,
 } from "@/db/schema";
 import { toNumber } from "@/lib/format";
+import { requireOrgEmployee } from "@/lib/org-employee";
 import { workedMinutes } from "@/lib/payroll";
 import {
   accrualForEntry,
@@ -37,10 +38,19 @@ export async function ensureFloat(
   conn: Conn,
   input: { orgId: string; employeeId: string; forUpdate?: boolean },
 ) {
+  // Id dari form tidak boleh membuat baris saldo untuk karyawan organisasi lain.
+  const employee = await requireOrgEmployee(conn, input.orgId, input.employeeId);
+  if (!employee) return null;
+
+  const where = and(
+    eq(wageFloats.orgId, input.orgId),
+    eq(wageFloats.employeeId, input.employeeId),
+  );
+
   const [existing] = await conn
     .select()
     .from(wageFloats)
-    .where(eq(wageFloats.employeeId, input.employeeId))
+    .where(where)
     .limit(1)
     .for(input.forUpdate ? "update" : "key share");
 
@@ -57,12 +67,12 @@ export async function ensureFloat(
   const [row] = await conn
     .select()
     .from(wageFloats)
-    .where(eq(wageFloats.employeeId, input.employeeId))
+    .where(where)
     .limit(1);
   return row;
 }
 
-async function bumpBalance(conn: Conn, floatId: string, delta: number) {
+async function bumpBalance(conn: Conn, orgId: string, floatId: string, delta: number) {
   if (delta === 0) return;
   await conn
     .update(wageFloats)
@@ -70,7 +80,7 @@ async function bumpBalance(conn: Conn, floatId: string, delta: number) {
       balance: sql`${wageFloats.balance} + ${delta}`,
       updatedAt: new Date(),
     })
-    .where(eq(wageFloats.id, floatId));
+    .where(and(eq(wageFloats.id, floatId), eq(wageFloats.orgId, orgId)));
 }
 
 /** Riwayat tarif karyawan (upah + ongkos) untuk menentukan \"tarif saat kejadian\". */
@@ -120,7 +130,7 @@ export async function accrueForEntry(
   const [existingFloat] = await conn
     .select()
     .from(wageFloats)
-    .where(eq(wageFloats.employeeId, entry.employeeId))
+    .where(and(eq(wageFloats.orgId, input.orgId), eq(wageFloats.employeeId, entry.employeeId)))
     .limit(1);
 
   if (!existingFloat && !input.allowCreate) {
@@ -134,7 +144,7 @@ export async function accrueForEntry(
   const [employee] = await conn
     .select()
     .from(employees)
-    .where(eq(employees.id, entry.employeeId))
+    .where(and(eq(employees.id, entry.employeeId), eq(employees.orgId, input.orgId)))
     .limit(1);
   if (!employee) return { ok: false, message: "Karyawan tidak ditemukan." };
 
@@ -161,6 +171,7 @@ export async function accrueForEntry(
     .from(wageFloatTxns)
     .where(
       and(
+        eq(wageFloatTxns.orgId, input.orgId),
         eq(wageFloatTxns.sourceTable, "time_entries"),
         eq(wageFloatTxns.sourceId, entry.id),
         eq(wageFloatTxns.kind, "accrual"),
@@ -171,8 +182,10 @@ export async function accrueForEntry(
   if (breakdown.total <= 0) {
     // Tidak ada nilai kerja (mis. jam 0 dan tanpa ongkos) → bersihkan accrual lama.
     if (existingTxn) {
-      await conn.delete(wageFloatTxns).where(eq(wageFloatTxns.id, existingTxn.id));
-      await bumpBalance(conn, floatRow.id, Math.abs(toNumber(existingTxn.amount)));
+      await conn.delete(wageFloatTxns).where(
+        and(eq(wageFloatTxns.id, existingTxn.id), eq(wageFloatTxns.orgId, input.orgId)),
+      );
+      await bumpBalance(conn, input.orgId, floatRow.id, Math.abs(toNumber(existingTxn.amount)));
     }
     return { ok: true, amount: 0, created: false, skipped: "nol" };
   }
@@ -188,8 +201,8 @@ export async function accrueForEntry(
         minutes,
         rateUsed: rate.toString(),
       })
-      .where(eq(wageFloatTxns.id, existingTxn.id));
-    await bumpBalance(conn, floatRow.id, -delta);
+      .where(and(eq(wageFloatTxns.id, existingTxn.id), eq(wageFloatTxns.orgId, input.orgId)));
+    await bumpBalance(conn, input.orgId, floatRow.id, -delta);
     return { ok: true, amount: breakdown.total, created: false };
   }
 
@@ -208,29 +221,32 @@ export async function accrueForEntry(
     note: `Upah ${Math.floor(minutes / 60)}j ${minutes % 60}m${breakdown.transportAmount > 0 ? " + ongkos" : ""}`,
     createdBy: input.userId ?? null,
   });
-  await bumpBalance(conn, floatRow.id, -breakdown.total);
+  await bumpBalance(conn, input.orgId, floatRow.id, -breakdown.total);
 
   return { ok: true, amount: breakdown.total, created: true };
 }
 
 /** Hapus accrual satu absensi (dipakai saat absensi ditolak / dibatalkan / dihapus). */
-export async function reverseAccrual(conn: Conn, entryId: string): Promise<number> {
+export async function reverseAccrual(conn: Conn, orgId: string, entryId: string): Promise<number> {
+  const txnFilter = and(
+    eq(wageFloatTxns.orgId, orgId),
+    eq(wageFloatTxns.sourceTable, "time_entries"),
+    eq(wageFloatTxns.sourceId, entryId),
+    eq(wageFloatTxns.kind, "accrual"),
+  );
+
   const [txn] = await conn
     .select()
     .from(wageFloatTxns)
-    .where(
-      and(
-        eq(wageFloatTxns.sourceTable, "time_entries"),
-        eq(wageFloatTxns.sourceId, entryId),
-        eq(wageFloatTxns.kind, "accrual"),
-      ),
-    )
+    .where(txnFilter)
     .limit(1);
 
   if (!txn) return 0;
 
-  await conn.delete(wageFloatTxns).where(eq(wageFloatTxns.id, txn.id));
-  await bumpBalance(conn, txn.floatId, Math.abs(toNumber(txn.amount)));
+  await conn.delete(wageFloatTxns).where(
+    and(eq(wageFloatTxns.id, txn.id), eq(wageFloatTxns.orgId, orgId)),
+  );
+  await bumpBalance(conn, orgId, txn.floatId, Math.abs(toNumber(txn.amount)));
   return Math.abs(toNumber(txn.amount));
 }
 
@@ -262,7 +278,7 @@ export async function topUpSaldo(
     note: input.note ?? "Top up saldo",
     createdBy: input.userId ?? null,
   });
-  await bumpBalance(conn, floatRow.id, input.amount);
+  await bumpBalance(conn, input.orgId, floatRow.id, input.amount);
   return floatRow;
 }
 
@@ -294,7 +310,7 @@ export async function adjustSaldo(
     note: input.note ?? "Koreksi saldo",
     createdBy: input.userId ?? null,
   });
-  await bumpBalance(conn, floatRow.id, input.amount);
+  await bumpBalance(conn, input.orgId, floatRow.id, input.amount);
   return floatRow;
 }
 
@@ -377,7 +393,7 @@ export async function transferAdvanceToSaldo(
     note: "Pindahan dari kasbon",
     createdBy: input.userId ?? null,
   });
-  await bumpBalance(conn, floatRow.id, amount);
+  await bumpBalance(conn, input.orgId, floatRow.id, amount);
 
   return { employeeId: advance.employeeId, amount, balanceAfter: balance - amount };
 }
@@ -415,21 +431,23 @@ export async function settleShortfall(
     note: "Pelunasan tunai kekurangan saldo di slip gaji",
     createdBy: input.userId ?? null,
   });
-  await bumpBalance(conn, floatRow.id, input.amount);
+  await bumpBalance(conn, input.orgId, floatRow.id, input.amount);
 }
 
 /** Batalkan pelunasan tunai milik slip periode yang dihitung ulang/dihapus. */
-export async function revertSettlements(conn: Conn, payslipIds: string[]) {
+export async function revertSettlements(conn: Conn, orgId: string, payslipIds: string[]) {
   if (payslipIds.length === 0) return;
   const rows = await conn
     .select()
     .from(wageFloatTxns)
-    .where(eq(wageFloatTxns.kind, "settle"));
+    .where(and(eq(wageFloatTxns.orgId, orgId), eq(wageFloatTxns.kind, "settle")));
 
   for (const row of rows) {
     if (!row.payslipId || !payslipIds.includes(row.payslipId)) continue;
-    await conn.delete(wageFloatTxns).where(eq(wageFloatTxns.id, row.id));
-    await bumpBalance(conn, row.floatId, -Math.abs(toNumber(row.amount)));
+    await conn.delete(wageFloatTxns).where(
+      and(eq(wageFloatTxns.id, row.id), eq(wageFloatTxns.orgId, orgId)),
+    );
+    await bumpBalance(conn, orgId, row.floatId, -Math.abs(toNumber(row.amount)));
   }
 }
 
@@ -456,7 +474,7 @@ export async function saldoForPeriod(
   const [floatRow] = await conn
     .select()
     .from(wageFloats)
-    .where(eq(wageFloats.employeeId, input.employeeId))
+    .where(and(eq(wageFloats.orgId, input.orgId), eq(wageFloats.employeeId, input.employeeId)))
     .limit(1);
 
   if (!floatRow) {
@@ -478,7 +496,7 @@ export async function saldoForPeriod(
       occurredAt: wageFloatTxns.occurredAt,
     })
     .from(wageFloatTxns)
-    .where(eq(wageFloatTxns.floatId, floatRow.id));
+    .where(and(eq(wageFloatTxns.orgId, input.orgId), eq(wageFloatTxns.floatId, floatRow.id)));
 
   const balanceStart = balanceBefore(txns, input.period.start);
   const { accrualTotal, fundingInPeriod } = periodLedgerSummary(txns, input.period);
@@ -569,7 +587,7 @@ export async function loadSaldoHistory(orgId: string, employeeId: string, limit 
   const txns = await db
     .select()
     .from(wageFloatTxns)
-    .where(eq(wageFloatTxns.floatId, floatRow.id))
+    .where(and(eq(wageFloatTxns.orgId, orgId), eq(wageFloatTxns.floatId, floatRow.id)))
     .orderBy(desc(wageFloatTxns.occurredAt), desc(wageFloatTxns.createdAt))
     .limit(limit);
 
@@ -584,7 +602,7 @@ export async function averageDailyAccrual(
   const [floatRow] = await conn
     .select({ id: wageFloats.id })
     .from(wageFloats)
-    .where(eq(wageFloats.employeeId, input.employeeId))
+    .where(and(eq(wageFloats.orgId, input.orgId), eq(wageFloats.employeeId, input.employeeId)))
     .limit(1);
   if (!floatRow) return 0;
 
@@ -596,6 +614,7 @@ export async function averageDailyAccrual(
     .from(wageFloatTxns)
     .where(
       and(
+        eq(wageFloatTxns.orgId, input.orgId),
         eq(wageFloatTxns.floatId, floatRow.id),
         eq(wageFloatTxns.kind, "accrual"),
         gte(wageFloatTxns.occurredAt, input.since),
