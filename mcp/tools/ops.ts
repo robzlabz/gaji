@@ -19,7 +19,12 @@ const ORG_ARG = {
   org: z.string().optional().describe("Slug/nama/id organisasi. Kosongkan bila hanya ada satu tenant."),
 };
 
-export function registerOpsTools(server: McpServer) {
+export type OpsToolOptions = {
+  /** Daftarkan `gaji_query` (SQL bebas). Hanya untuk transport stdio lokal. */
+  rawQuery?: boolean;
+};
+
+export function registerOpsTools(server: McpServer, options: OpsToolOptions = {}) {
   /* ---------------------------------------------------------------- */
   server.registerTool(
     "gaji_kasbon",
@@ -413,37 +418,41 @@ export function registerOpsTools(server: McpServer) {
   );
 
   /* ---------------------------------------------------------------- */
-  server.registerTool(
-    "gaji_query",
-    {
-      title: "Query SQL read-only (escape hatch)",
-      description:
-        "Jalankan satu SELECT/WITH bebas untuk pertanyaan yang tidak tercakup tool lain. Selalu dijalankan dalam transaksi read-only, maksimal 200 baris dikembalikan. Tabel utama: employees, time_entries, work_tasks, cash_advances, cash_advance_plans, cash_advance_txns, leaves, pay_periods, payslips, payslip_items, contracts, audit_logs. Hampir semua punya kolom org_id — filter dengan itu.",
-      inputSchema: {
-        sql: z.string().describe("Satu statement SELECT atau WITH (tanpa titik koma tambahan)."),
-        params: z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional()
-          .describe("Nilai untuk placeholder $1, $2, ..."),
+  // SQL bebas tidak diberi scope organisasi, jadi tool ini hanya untuk stdio lokal.
+  // Server HTTP multi-tenant tidak boleh mendaftarkannya.
+  if (options.rawQuery) {
+    server.registerTool(
+      "gaji_query",
+      {
+        title: "Query SQL read-only (escape hatch)",
+        description:
+          "Jalankan satu SELECT/WITH bebas untuk pertanyaan yang tidak tercakup tool lain. Selalu dijalankan dalam transaksi read-only, maksimal 200 baris dikembalikan. Tabel utama: employees, time_entries, work_tasks, cash_advances, cash_advance_plans, cash_advance_txns, leaves, pay_periods, payslips, payslip_items, contracts, audit_logs. Hampir semua punya kolom org_id — filter dengan itu.",
+        inputSchema: {
+          sql: z.string().describe("Satu statement SELECT atau WITH (tanpa titik koma tambahan)."),
+          params: z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional()
+            .describe("Nilai untuk placeholder $1, $2, ..."),
+        },
+        annotations: { readOnlyHint: true },
       },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ sql: statement, params }) => {
-      const text = statement.trim().replace(/;+\s*$/, "");
+      async ({ sql: statement, params }) => {
+        const text = statement.trim().replace(/;+\s*$/, "");
 
-      if (!/^(select|with)\b/i.test(text)) {
-        throw new Error("Hanya SELECT atau WITH yang diizinkan di tool ini.");
-      }
-      if (text.includes(";")) {
-        throw new Error("Kirim satu statement saja (tanpa titik koma di tengah).");
-      }
+        if (!/^(select|with)\b/i.test(text)) {
+          throw new Error("Hanya SELECT atau WITH yang diizinkan di tool ini.");
+        }
+        if (text.includes(";")) {
+          throw new Error("Kirim satu statement saja (tanpa titik koma di tengah).");
+        }
 
-      const rows = await query<Record<string, unknown>>(text, params ?? []);
-      const MAX = 200;
+        const rows = await query<Record<string, unknown>>(text, params ?? []);
+        const MAX = 200;
 
-      return toolResult({
-        rowCount: rows.length,
-        truncated: rows.length > MAX,
-        rows: rows.slice(0, MAX),
-      });
-    },
-  );
+        return toolResult({
+          rowCount: rows.length,
+          truncated: rows.length > MAX,
+          rows: rows.slice(0, MAX),
+        });
+      },
+    );
+  }
 }

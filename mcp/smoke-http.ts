@@ -12,8 +12,9 @@
  * Yang diuji:
  * 1. token salah → 401 (server menolak sebelum menyentuh data);
  * 2. handshake initialize + tools/list lewat HTTP;
- * 3. beberapa tool call nyata;
- * 4. API key hanya melihat organisasinya sendiri.
+ * 3. `gaji_query` (SQL bebas) tidak muncul di tools/list HTTP;
+ * 4. beberapa tool call nyata;
+ * 5. API key hanya melihat organisasinya sendiri.
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -90,12 +91,19 @@ async function main() {
   const { tools } = await client.listTools();
   console.log(`OK   tools/list → ${tools.length} tool`);
 
+  // `gaji_query` (SQL bebas) tidak boleh tersedia lewat HTTP multi-tenant.
+  const leaked = tools.filter((tool) => tool.name === "gaji_query");
+  const noRawQuery = leaked.length === 0;
+  console.log(
+    `${noRawQuery ? "OK  " : "FAIL"} tools/list tidak memuat gaji_query (khusus stdio lokal)`,
+  );
+  if (!noRawQuery) failures++;
+
   const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [
     { name: "gaji_list_orgs", arguments: {} },
     { name: "gaji_overview", arguments: {} },
     { name: "gaji_attendance_live", arguments: {} },
     { name: "gaji_pending_approvals", arguments: {} },
-    { name: "gaji_query", arguments: { sql: "select count(*)::int as employees from employees" } },
   ];
 
   for (const call of calls) {
@@ -143,7 +151,7 @@ async function main() {
 
   console.log(
     failures === 0
-      ? `\nSelesai: semua pemeriksaan HTTP lulus (${calls.length + 3 + (temporary ? 1 : 0)} cek).`
+      ? `\nSelesai: semua pemeriksaan HTTP lulus (${calls.length + 4 + (temporary ? 1 : 0)} cek).`
       : `\nSelesai dengan ${failures} kegagalan.`,
   );
   if (failures > 0) process.exitCode = 1;

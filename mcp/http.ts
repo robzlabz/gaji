@@ -62,7 +62,8 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
     });
   }
 
-  const server = createGajiMcpServer();
+  // Multi-tenant: `gaji_query` sengaja tidak didaftarkan (lihat server-factory).
+  const server = createGajiMcpServer({ rawQuery: false });
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
