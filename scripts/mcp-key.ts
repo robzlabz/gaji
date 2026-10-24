@@ -93,7 +93,7 @@ async function create(args: Args) {
   console.log(`  id    : ${id}`);
   console.log(`  token : ${token}`);
   console.log(`\nConnection URL:`);
-  console.log(`  ${args.url ?? "http://localhost:3000"}/api/mcp?key=${token}`);
+  console.log(`  ${args.url ?? "http://localhost:3000"}/api/mcp/${token}`);
 }
 
 async function revoke(args: Args) {

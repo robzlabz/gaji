@@ -17,7 +17,8 @@ import { createGajiMcpServer } from "./server-factory";
 console.log = (...args: unknown[]) => console.error(...args);
 console.info = (...args: unknown[]) => console.error(...args);
 
-const server = createGajiMcpServer();
+// stdio lokal tidak memakai API key/tenant scope, jadi `gaji_query` boleh didaftarkan.
+const server = createGajiMcpServer({ rawQuery: true });
 
 server
   .connect(new StdioServerTransport())

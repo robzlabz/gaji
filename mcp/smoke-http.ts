@@ -11,9 +11,11 @@
  *
  * Yang diuji:
  * 1. token salah → 401 (server menolak sebelum menyentuh data);
- * 2. handshake initialize + tools/list lewat HTTP;
- * 3. beberapa tool call nyata;
- * 4. API key hanya melihat organisasinya sendiri.
+ * 2. URL `/api/mcp/<key>` tanpa header diterima, token salah di path → 401;
+ * 3. handshake initialize + tools/list lewat HTTP;
+ * 4. `gaji_query` (SQL bebas) tidak muncul di tools/list HTTP;
+ * 5. beberapa tool call nyata;
+ * 6. API key hanya melihat organisasinya sendiri.
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -79,7 +81,45 @@ async function main() {
   console.log(`${rejected ? "OK  " : "FAIL"} token salah ditolak (status ${unauthorized.status})`);
   if (!rejected) failures++;
 
-  // 2. Sambung seperti client MCP biasa.
+  // 2. URL berbasis path: token di path, tanpa header sama sekali.
+  const initBody = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "gaji-mcp-smoke-http", version: "1.0.0" },
+    },
+  });
+  const pathEndpoint = new URL(endpoint);
+  pathEndpoint.pathname = `${pathEndpoint.pathname.replace(/\/+$/, "")}/${encodeURIComponent(token)}`;
+
+  const pathResponse = await fetch(pathEndpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: initBody,
+  });
+  const pathAccepted = pathResponse.status === 200;
+  console.log(
+    `${pathAccepted ? "OK  " : "FAIL"} URL /api/mcp/<key> tanpa header diterima (status ${pathResponse.status})`,
+  );
+  if (!pathAccepted) failures++;
+
+  const badPathEndpoint = new URL(endpoint);
+  badPathEndpoint.pathname = `${badPathEndpoint.pathname.replace(/\/+$/, "")}/gk_salah`;
+  const badPathResponse = await fetch(badPathEndpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: initBody,
+  });
+  const badPathRejected = badPathResponse.status === 401;
+  console.log(
+    `${badPathRejected ? "OK  " : "FAIL"} token salah di path ditolak (status ${badPathResponse.status})`,
+  );
+  if (!badPathRejected) failures++;
+
+  // 3. Sambung seperti client MCP biasa.
   const transport = new StreamableHTTPClientTransport(endpoint, {
     requestInit: { headers: { authorization: `Bearer ${token}` } },
   });
@@ -90,12 +130,19 @@ async function main() {
   const { tools } = await client.listTools();
   console.log(`OK   tools/list → ${tools.length} tool`);
 
+  // `gaji_query` (SQL bebas) tidak boleh tersedia lewat HTTP multi-tenant.
+  const leaked = tools.filter((tool) => tool.name === "gaji_query");
+  const noRawQuery = leaked.length === 0;
+  console.log(
+    `${noRawQuery ? "OK  " : "FAIL"} tools/list tidak memuat gaji_query (khusus stdio lokal)`,
+  );
+  if (!noRawQuery) failures++;
+
   const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [
     { name: "gaji_list_orgs", arguments: {} },
     { name: "gaji_overview", arguments: {} },
     { name: "gaji_attendance_live", arguments: {} },
     { name: "gaji_pending_approvals", arguments: {} },
-    { name: "gaji_query", arguments: { sql: "select count(*)::int as employees from employees" } },
   ];
 
   for (const call of calls) {
@@ -111,7 +158,7 @@ async function main() {
     }
   }
 
-  // 3. Scope tenant: kunci hanya boleh melihat satu organisasi.
+  // 4. Scope tenant: kunci hanya boleh melihat satu organisasi.
   const orgsReply = await client.callTool({ name: "gaji_list_orgs", arguments: {} });
   const orgsText = textOf(orgsReply as { content?: Array<{ type: string; text?: string }> });
   let orgCount = -1;
@@ -127,7 +174,7 @@ async function main() {
 
   await client.close();
 
-  // 4. Kunci yang dicabut harus langsung ditolak.
+  // 5. Kunci yang dicabut harus langsung ditolak.
   if (temporary) {
     const { revokeKey } = await import("./keys-store");
     await revokeKey(temporary.orgId, temporary.keyId);
@@ -143,7 +190,7 @@ async function main() {
 
   console.log(
     failures === 0
-      ? `\nSelesai: semua pemeriksaan HTTP lulus (${calls.length + 3 + (temporary ? 1 : 0)} cek).`
+      ? `\nSelesai: semua pemeriksaan HTTP lulus (${calls.length + 6 + (temporary ? 1 : 0)} cek).`
       : `\nSelesai dengan ${failures} kegagalan.`,
   );
   if (failures > 0) process.exitCode = 1;

@@ -6,6 +6,9 @@
  * MCP server cukup dengan URL + header. Jadi tidak perlu menjalankan proses lokal,
  * dan kunci akses bisa dicabut dari UI admin.
  *
+ * Token boleh datang dari path (`/api/mcp/<token>`, cara utama yang ditampilkan di
+ * /admin/mcp), header Bearer, atau query lama `?key=` — lihat `readToken`.
+ *
  * Mode **stateless**: server + transport baru dibuat untuk setiap request, tanpa
  * session id. Cocok untuk server read-only seperti ini — tidak ada state yang perlu
  * dipertahankan antar request, jadi aman walau app dijalankan lebih dari satu replika.
@@ -41,15 +44,18 @@ async function closeWhenDone(response: Response, close: () => Promise<void>): Pr
   return new Response(body, { status: response.status, headers: response.headers });
 }
 
-export async function handleMcpRequest(request: Request): Promise<Response> {
-  const token = readToken(request);
+export async function handleMcpRequest(
+  request: Request,
+  pathToken?: string | null,
+): Promise<Response> {
+  const token = readToken(request, pathToken);
   const key = token ? await verifyToken(token) : null;
 
   if (!key) {
     return rpcError(
       401,
       -32001,
-      "Unauthorized. Kirim header 'Authorization: Bearer <token>' atau parameter ?key=<token> dari halaman Pengaturan → MCP.",
+      "Unauthorized. Gunakan URL '/api/mcp/<token>' dari halaman Pengaturan → MCP, atau kirim header 'Authorization: Bearer <token>'.",
     );
   }
 
@@ -62,7 +68,8 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
     });
   }
 
-  const server = createGajiMcpServer();
+  // Multi-tenant: `gaji_query` sengaja tidak didaftarkan (lihat server-factory).
+  const server = createGajiMcpServer({ rawQuery: false });
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

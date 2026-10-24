@@ -144,10 +144,10 @@ export default async function McpPage({
 
           <p className="text-xs text-muted-foreground">
             Token disimpan terenkripsi (AES-256-GCM, kunci turunan BETTER_AUTH_SECRET) dan hanya
-            bisa dibuka oleh admin organisasi ini. Semua tool bersifat read-only. Catatan: tool
+            bisa dibuka oleh admin organisasi ini. Semua tool bersifat read-only. Tool
             <code className="mx-1 font-mono">gaji_query</code>
-            (SELECT bebas) adalah jalan pintas yang bisa membaca seluruh database — cabut kunci
-            kalau akses seluas itu tidak diinginkan.
+            (SELECT bebas) tidak didaftarkan di endpoint HTTP ini; tool itu hanya tersedia pada
+            server stdio lokal (<code className="font-mono">npm run mcp</code>).
           </p>
         </CardContent>
       </Card>
