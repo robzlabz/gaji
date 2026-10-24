@@ -50,6 +50,9 @@ import { findCountry } from "@/lib/countries";
 /** Zona waktu yang boleh dipilih; menentukan batas tanggal absensi & periode gaji. */
 const TIMEZONE_OPTIONS = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"];
 
+/** Format tanggal tunggal YYYY-MM-DD; nilai custom dari form wajib lolos ini. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 function str(fd: FormData, key: string): string {
   const value = fd.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -1635,10 +1638,17 @@ export async function createPayrollRunAction(formData: FormData) {
     : [str(formData, "periodStart"), str(formData, "periodEnd")];
   const payDate = optionalStr(formData, "payDate");
 
-  if (!periodStart || !periodEnd || periodEnd < periodStart) {
+  if (
+    !periodStart ||
+    !periodEnd ||
+    periodEnd < periodStart ||
+    !DATE_ONLY.test(periodStart) ||
+    !DATE_ONLY.test(periodEnd)
+  ) {
     fail("/admin/payroll", "Rentang periode tidak valid.");
   }
 
+  // Indeks unik (org_id, period_start): baris void pun tetap menempati tanggal mulai ini.
   const [existing] = await db
     .select({ id: payPeriods.id })
     .from(payPeriods)
@@ -1646,6 +1656,27 @@ export async function createPayrollRunAction(formData: FormData) {
     .limit(1);
 
   if (existing) fail("/admin/payroll", "Periode ini sudah pernah dihitung.");
+
+  // Rentang yang beririsan walau tanggal mulainya beda (mis. setelah tanggal mulai periode diubah).
+  const [overlapping] = await db
+    .select({ periodStart: payPeriods.periodStart, periodEnd: payPeriods.periodEnd })
+    .from(payPeriods)
+    .where(
+      and(
+        eq(payPeriods.orgId, org.id),
+        ne(payPeriods.status, "void"),
+        lte(payPeriods.periodStart, periodEnd),
+        gte(payPeriods.periodEnd, periodStart),
+      ),
+    )
+    .limit(1);
+
+  if (overlapping) {
+    fail(
+      "/admin/payroll",
+      `Periode ${formatDateID(periodStart)}–${formatDateID(periodEnd)} beririsan dengan periode ${formatDateID(overlapping.periodStart)}–${formatDateID(overlapping.periodEnd)} yang sudah dihitung. Pilih periode yang tidak beririsan.`,
+    );
+  }
 
   const preview = await previewPayroll(
     org.id,

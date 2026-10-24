@@ -22,7 +22,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDateID, localDateString, rupiah, rupiahShort, toNumber } from "@/lib/format";
-import { periodLabel, recentPeriods } from "@/lib/period";
+import {
+  periodContaining,
+  periodLabel,
+  periodsOverlap,
+  recentPeriods,
+  transitionPeriod,
+} from "@/lib/period";
 
 export default async function PayrollPage({
   searchParams,
@@ -53,6 +59,55 @@ export default async function PayrollPage({
 
   const lastPaid = rows.find((row) => row.status === "paid");
   const draftCount = rows.filter((row) => row.status === "draft").length;
+
+  // Periode void tidak dipakai sebagai penghalang irisan: payroll-nya sudah dibatalkan.
+  // Tapi tanggal mulainya tetap terpakai oleh indeks unik (org_id, period_start).
+  const countedPeriods = rows
+    .filter((row) => row.status !== "void")
+    .map((row) => ({ start: row.periodStart, end: row.periodEnd }));
+  const periodOptions = options.map((period) => {
+    const overlapping = countedPeriods.some((existing) => periodsOverlap(period, existing));
+    const startTaken = rows.some((row) => row.periodStart === period.start);
+    return {
+      period,
+      disabled: overlapping || startTaken,
+      note: overlapping
+        ? " (beririsan dengan periode yang sudah dihitung)"
+        : startTaken
+          ? " (sudah pernah dihitung)"
+          : "",
+    };
+  });
+
+  // Tanggal mulai periode berubah → tawarkan periode transisi setelah periode terakhir yang dihitung.
+  // Deteksinya: periode terakhir tidak lagi sejajar dengan tanggal mulai sekarang
+  // (mis. periode 1–31 Okt dihitung saat tanggal mulai 1, lalu diubah ke 26).
+  const latestCounted =
+    countedPeriods.length > 0
+      ? countedPeriods.reduce((acc, period) => (period.end > acc.end ? period : acc))
+      : null;
+  const naturalLatest = latestCounted
+    ? periodContaining(latestCounted.start, org.payPeriodStartDay)
+    : null;
+  const startDayChanged =
+    latestCounted !== null &&
+    naturalLatest !== null &&
+    (naturalLatest.start !== latestCounted.start || naturalLatest.end !== latestCounted.end);
+  const gapPeriod =
+    startDayChanged && latestCounted
+      ? transitionPeriod(latestCounted.end, org.payPeriodStartDay)
+      : null;
+  // Periode transisi tidak ditawarkan kalau tanggal mulainya sudah dipakai baris mana pun.
+  // Kalau periode itu sudah ada di daftar pilihan (menempel tanpa celah), juga tidak perlu ditambah.
+  const transition =
+    gapPeriod &&
+    !rows.some((row) => row.periodStart === gapPeriod.start) &&
+    !periodOptions.some((option) => !option.disabled && option.period.start === gapPeriod.start)
+      ? gapPeriod
+      : null;
+  const defaultPeriod = periodOptions[0].disabled
+    ? (transition ?? periodOptions.find((option) => !option.disabled)?.period)
+    : periodOptions[0].period;
 
   return (
     <>
@@ -89,12 +144,29 @@ export default async function PayrollPage({
           <CardDescription>Hanya absensi &amp; tugas berstatus approved yang dihitung.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
+          {transition ? (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+              Tanggal mulai periode berubah. Gunakan periode transisi agar tidak ada hari yang dibayar
+              dua kali atau terlewat.
+            </p>
+          ) : null}
           <form action={createPayrollRunAction} className="flex flex-col gap-3">
             <FormField label="Periode">
-              <SelectInput name="period" defaultValue={`${options[0].start}|${options[0].end}`}>
-                {options.map((period) => (
-                  <option key={period.start} value={`${period.start}|${period.end}`}>
+              <SelectInput
+                name="period"
+                defaultValue={
+                  defaultPeriod ? `${defaultPeriod.start}|${defaultPeriod.end}` : undefined
+                }
+              >
+                {transition ? (
+                  <option value={`${transition.start}|${transition.end}`}>
+                    {periodLabel(transition)} (periode transisi)
+                  </option>
+                ) : null}
+                {periodOptions.map(({ period, disabled, note }) => (
+                  <option key={period.start} value={`${period.start}|${period.end}`} disabled={disabled}>
                     {periodLabel(period)}
+                    {note}
                   </option>
                 ))}
               </SelectInput>
@@ -107,8 +179,9 @@ export default async function PayrollPage({
             </div>
           </form>
           <p className="text-xs text-muted-foreground">
-            Nilai periode diambil dari pilihan di atas. Kalau periode sudah pernah dihitung, sistem
-            menolak untuk mencegah dobel bayar.
+            Nilai periode diambil dari pilihan di atas. Pilihan yang beririsan dengan periode yang
+            sudah dihitung dinonaktifkan, dan periode yang sudah pernah dihitung ditolak agar tidak
+            ada hari yang dibayar dua kali.
           </p>
         </CardContent>
       </Card>
