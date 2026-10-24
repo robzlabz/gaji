@@ -192,9 +192,9 @@ export function currentPeriod(org: Org, date?: string): Period {
   return periodContaining(date ?? todayIn(org), org.payPeriodStartDay);
 }
 
-function endOfPeriodStarting(start: string): string {
+function endOfPeriodStarting(start: string, startDay: number): string {
   // Awal periode berikutnya dikurangi satu hari.
-  return addDays(shiftPeriod(start, 1).start, -1);
+  return addDays(shiftPeriod(start, 1, startDay).start, -1);
 }
 
 export type ResolvedPeriod = {
@@ -218,7 +218,8 @@ function label(period: Period): string {
 /**
  * Periode yang dimaksud tool, dari salah satu argumen:
  * - `periodId`  : id baris pay_periods
- * - `periodStart`: tanggal mulai periode (YYYY-MM-DD)
+ * - `periodStart`: tanggal mulai periode (YYYY-MM-DD); bila baris pay_periods sudah ada,
+ *   tanggal mulai/akhir dari baris itu yang dipakai
  * - `date`      : tanggal di dalam periode
  * - kosong      : periode berjalan
  */
@@ -254,17 +255,33 @@ export async function resolvePeriod(
 
   let period: Period;
   if (args.periodStart) {
-    period = { start: args.periodStart, end: endOfPeriodStarting(args.periodStart) };
+    period = {
+      start: args.periodStart,
+      end: endOfPeriodStarting(args.periodStart, org.payPeriodStartDay),
+    };
   } else if (args.date) {
     period = currentPeriod(org, args.date);
   } else {
     period = current;
   }
 
-  const row = await queryOne<{ id: string; status: string; pay_date: string | null }>(
-    `select id, status, pay_date from pay_periods where org_id = $1 and period_start = $2`,
+  const row = await queryOne<{
+    id: string;
+    period_start: string;
+    period_end: string;
+    status: string;
+    pay_date: string | null;
+  }>(
+    `select id, period_start, period_end, status, pay_date
+       from pay_periods where org_id = $1 and period_start = $2`,
     [org.id, period.start],
   );
+
+  // Bila baris pay_periods sudah ada, pakai tanggal mulai/akhir yang tersimpan;
+  // endOfPeriodStarting hanya dipakai sebagai fallback saat belum ada baris.
+  if (args.periodStart && row) {
+    period = { start: row.period_start, end: row.period_end };
+  }
 
   return {
     period,

@@ -54,6 +54,6 @@ Sertakan desktop dan mobile. Kalau perubahan tidak menyentuh UI, tulis "Tidak ad
 1. Persiapan sesi seperti di atas.
 2. Minta omp memeriksa per area (payroll & perhitungan upah, absensi, kasbon/saldo, cuti, auth & akses multi-tenant, MCP server), misalnya:
    `omp -p "Audit src/lib/payroll.ts dan pemakainya: cari perhitungan yang salah, bug, dan masalah keamanan. Sebutkan file, baris, dan cara reproduksi." </dev/null`
-3. Verifikasi setiap temuan sendiri (baca kodenya, jalankan `npm run check:cuti` / `npm run check:saldo` bila relevan). Buang temuan yang tidak bisa dibuktikan.
+3. Verifikasi setiap temuan sendiri (baca kodenya, jalankan `npm run check:period` / `npm run check:cuti` / `npm run check:saldo` bila relevan). Buang temuan yang tidak bisa dibuktikan.
 4. Cek duplikat terhadap issue yang sudah ada (terbuka maupun tertutup).
 5. Buat satu issue per temuan dengan label `bug`, `feature`, atau `security`. Isi: ringkasan, lokasi kode, langkah reproduksi, dampak, usulan perbaikan. Detail eksploit untuk temuan `security` ditulis secukupnya saja karena repo ini publik.

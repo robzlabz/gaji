@@ -15,23 +15,26 @@ function clampDay(year: number, month: number, day: number): number {
   return Math.min(day, lastDay);
 }
 
+/**
+ * Awal periode untuk bulan `monthIndex` (0–11) menurut tanggal mulai asli.
+ * `monthIndex` boleh di luar 0–11 (dinormalkan oleh Date.UTC).
+ * Contoh: startDay = 31 pada Februari → 28/29, tetapi Maret tetap tanggal 31.
+ */
+export function periodStartFor(year: number, monthIndex: number, startDay: number): string {
+  return iso(year, monthIndex, clampDay(year, monthIndex, startDay));
+}
+
 /** Periode yang memuat `anchor` (YYYY-MM-DD) berdasarkan tanggal mulai. */
 export function periodContaining(anchor: string, startDay: number): Period {
-  const [y, m, d] = anchor.split("-").map(Number);
+  const [y, m] = anchor.split("-").map(Number);
   const monthIndex = m - 1;
-  const startDayThisMonth = clampDay(y, monthIndex, startDay);
+  const startThisMonth = periodStartFor(y, monthIndex, startDay);
 
-  let start: string;
-  if (d >= startDayThisMonth) {
-    start = iso(y, monthIndex, startDayThisMonth);
-  } else {
-    const prev = new Date(Date.UTC(y, monthIndex - 1, 1));
-    const py = prev.getUTCFullYear();
-    const pm = prev.getUTCMonth();
-    start = iso(py, pm, clampDay(py, pm, startDay));
-  }
+  // Selalu hitung dari tanggal mulai asli, bukan dari tanggal yang sudah di-clamp.
+  const start =
+    anchor >= startThisMonth ? startThisMonth : periodStartFor(y, monthIndex - 1, startDay);
 
-  return { start, end: dayBefore(shiftPeriod(start, 1).start) };
+  return { start, end: dayBefore(shiftPeriod(start, 1, startDay).start) };
 }
 
 function dayBefore(dateStr: string): string {
@@ -40,17 +43,20 @@ function dayBefore(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Geser awal periode sebanyak `months`. */
-export function shiftPeriod(start: string, months: number): Period {
-  const [y, m, d] = start.split("-").map(Number);
+/**
+ * Geser awal periode sebanyak `months`.
+ * `start` harus berupa awal periode untuk `startDay` (tanggal mulai asli dari
+ * pengaturan organisasi); `startDay` dipakai ulang setiap bulan sehingga tanggal
+ * tidak bergeser setelah bulan pendek (mis. Februari).
+ */
+export function shiftPeriod(start: string, months: number, startDay: number): Period {
+  const [y, m] = start.split("-").map(Number);
   const target = new Date(Date.UTC(y, m - 1 + months, 1));
   const ty = target.getUTCFullYear();
   const tm = target.getUTCMonth();
-  const tStart = iso(ty, tm, clampDay(ty, tm, d));
+  const tStart = periodStartFor(ty, tm, startDay);
   const nextMonth = new Date(Date.UTC(ty, tm + 1, 1));
-  const ny = nextMonth.getUTCFullYear();
-  const nm = nextMonth.getUTCMonth();
-  const nextStart = iso(ny, nm, clampDay(ny, nm, d));
+  const nextStart = periodStartFor(nextMonth.getUTCFullYear(), nextMonth.getUTCMonth(), startDay);
   return { start: tStart, end: dayBefore(nextStart) };
 }
 
@@ -59,7 +65,7 @@ export function recentPeriods(anchor: string, startDay: number, count = 6): Peri
   const current = periodContaining(anchor, startDay);
   const out: Period[] = [current];
   for (let i = 1; i < count; i += 1) {
-    out.push(shiftPeriod(current.start, -i));
+    out.push(shiftPeriod(current.start, -i, startDay));
   }
   return out;
 }

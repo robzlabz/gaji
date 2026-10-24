@@ -1639,13 +1639,23 @@ export async function createPayrollRunAction(formData: FormData) {
     fail("/admin/payroll", "Rentang periode tidak valid.");
   }
 
-  const [existing] = await db
+  // Tolak periode yang bertumpuk dengan periode mana pun, termasuk yang sudah void:
+  // DB punya UNIQUE(org_id, period_start) sehingga baris void tetap menempati tanggal mulai.
+  const [overlap] = await db
     .select({ id: payPeriods.id })
     .from(payPeriods)
-    .where(and(eq(payPeriods.orgId, org.id), eq(payPeriods.periodStart, periodStart)))
+    .where(
+      and(
+        eq(payPeriods.orgId, org.id),
+        lte(payPeriods.periodStart, periodEnd),
+        gte(payPeriods.periodEnd, periodStart),
+      ),
+    )
     .limit(1);
 
-  if (existing) fail("/admin/payroll", "Periode ini sudah pernah dihitung.");
+  if (overlap) {
+    fail("/admin/payroll", "Periode ini bertumpuk dengan periode yang sudah pernah dihitung.");
+  }
 
   const preview = await previewPayroll(
     org.id,

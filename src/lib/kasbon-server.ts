@@ -34,10 +34,10 @@ export async function planningPeriod(
   for (let i = 0; i < 12; i += 1) {
     const status = statusByStart.get(period.start);
     if (!status || status === "draft") break;
-    period = shiftPeriod(period.start, 1);
+    period = shiftPeriod(period.start, 1, org.payPeriodStartDay);
   }
 
-  return { period, nextPeriod: shiftPeriod(period.start, 1) };
+  return { period, nextPeriod: shiftPeriod(period.start, 1, org.payPeriodStartDay) };
 }
 
 /**
