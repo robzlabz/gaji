@@ -6,7 +6,10 @@
  * - karyawan mengajukan tugas sendiri (`requested`) — harga dan persetujuan diisi admin.
  *
  * Hanya tugas `approved` yang masuk payroll, jadi pengajuan karyawan tidak pernah
- * menghasilkan uang sebelum admin mengisi harganya.
+ * menghasilkan uang sebelum admin mengisi harganya. Tugas yang disetujui dibayar
+ * sebagai penghasilan tambahan untuk semua tipe gaji (bukan hanya `per_task`).
+ * Bila persetujuannya baru terjadi setelah payroll periode tugas itu difinalkan,
+ * upahnya ikut dibayar di periode berikutnya sebagai tugas bawaan.
  */
 
 import type { Tone } from "@/components/status-badge";
