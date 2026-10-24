@@ -9,6 +9,11 @@
  * 3. Cuti pending diabaikan.
  * 4. Hari cuti yang sudah ada absensinya tidak dihitung dua kali.
  * 5. Tipe gaji selain bulanan tidak terpengaruh cuti.
+ * 6. joinedAt di tengah periode tanpa absensi → prorata (bukan gaji penuh).
+ * 7. endedAt di tengah periode tanpa absensi → prorata (bukan gaji penuh).
+ * 8. joinedAt setelah periode selesai → tidak ada baris gaji bulanan.
+ * 9. endedAt sebelum periode mulai → tidak ada baris gaji bulanan.
+ * 10. Karyawan bulan penuh tanpa absensi tetap dibayar penuh.
  */
 import { computePayslip, type LeaveInput, type TimeEntryInput } from "../src/lib/payroll";
 import { workDatesBetween } from "../src/lib/period";
@@ -85,10 +90,43 @@ const cases = {
     payRate: 175_000,
     timeEntries: attended,
   }),
+  // Prorata dua arah: denominator tetap hari kerja periode penuh, sedangkan pembilang
+  // dibatasi rentang kerja [joinedAt/period.start, endedAt/period.end].
+  joinedMidPeriod: computePayslip({
+    ...base,
+    joinedAt: workDays[10],
+    timeEntries: [],
+  }),
+  joinedMidPeriodHadirSemua: computePayslip({
+    ...base,
+    joinedAt: workDays[10],
+    timeEntries: workDays.slice(10).map(entry),
+  }),
+  endedMidPeriod: computePayslip({
+    ...base,
+    endedAt: workDays[10],
+    timeEntries: [],
+  }),
+  joinedAfterPeriod: computePayslip({
+    ...base,
+    joinedAt: "2026-11-01",
+    timeEntries: [],
+  }),
+  endedBeforePeriod: computePayslip({
+    ...base,
+    endedAt: "2026-09-01",
+    timeEntries: [],
+  }),
+  bulanPenuhTanpaAbsensi: computePayslip({
+    ...base,
+    timeEntries: [],
+  }),
 };
 
 const perDay = rate / denominator;
 const expectedIncrease = Math.round(leaveDates.length * perDay);
+const joinedWorkDays = workDays.slice(10).length;
+const endedWorkDays = workDays.slice(0, 11).length;
 
 const checks: Array<{ label: string; ok: boolean; detail: string }> = [
   {
@@ -125,6 +163,52 @@ const checks: Array<{ label: string; ok: boolean; detail: string }> = [
     label: "meta slip menyimpan hari cuti untuk audit",
     ok: cases.cutiBerbayar.lines[0].meta?.paidLeaveDays === leaveDates.length,
     detail: JSON.stringify(cases.cutiBerbayar.lines[0].meta),
+  },
+  {
+    label: "joinedAt di tengah periode tanpa absensi tetap prorata",
+    ok:
+      cases.joinedMidPeriod.gross === Math.round((joinedWorkDays / denominator) * rate) &&
+      cases.joinedMidPeriod.lines[0]?.label ===
+        `Gaji bulanan (prorata ${joinedWorkDays}/${denominator} hari)`,
+    detail: `gross ${cases.joinedMidPeriod.gross} (harus ${Math.round((joinedWorkDays / denominator) * rate)}), label ${cases.joinedMidPeriod.lines[0]?.label}`,
+  },
+  {
+    label: "endedAt di tengah periode tanpa absensi tetap prorata",
+    ok:
+      cases.endedMidPeriod.gross === Math.round((endedWorkDays / denominator) * rate) &&
+      cases.endedMidPeriod.lines[0]?.label ===
+        `Gaji bulanan (prorata ${endedWorkDays}/${denominator} hari)`,
+    detail: `gross ${cases.endedMidPeriod.gross} (harus ${Math.round((endedWorkDays / denominator) * rate)}), label ${cases.endedMidPeriod.lines[0]?.label}`,
+  },
+  {
+    label: "joinedAt setelah periode selesai tidak dapat gaji bulanan",
+    ok:
+      cases.joinedAfterPeriod.gross === 0 &&
+      cases.joinedAfterPeriod.lines.filter((line) => line.kind === "regular").length === 0,
+    detail: `gross ${cases.joinedAfterPeriod.gross}, baris ${cases.joinedAfterPeriod.lines.length}`,
+  },
+  {
+    label: "endedAt sebelum periode mulai tidak dapat gaji bulanan",
+    ok:
+      cases.endedBeforePeriod.gross === 0 &&
+      cases.endedBeforePeriod.lines.filter((line) => line.kind === "regular").length === 0,
+    detail: `gross ${cases.endedBeforePeriod.gross}, baris ${cases.endedBeforePeriod.lines.length}`,
+  },
+  {
+    label: "karyawan bulan penuh tanpa absensi tetap dibayar penuh",
+    ok:
+      cases.bulanPenuhTanpaAbsensi.gross === rate &&
+      cases.bulanPenuhTanpaAbsensi.lines[0]?.label === "Gaji bulanan (penuh)" &&
+      cases.bulanPenuhTanpaAbsensi.lines[0]?.unitRate === Math.round(rate / denominator),
+    detail: `gross ${cases.bulanPenuhTanpaAbsensi.gross}, label ${cases.bulanPenuhTanpaAbsensi.lines[0]?.label}`,
+  },
+  {
+    label: "hadir penuh sejak joinedAt tidak memunculkan warning absensi",
+    ok:
+      cases.joinedMidPeriodHadirSemua.gross ===
+        Math.round((joinedWorkDays / denominator) * rate) &&
+      cases.joinedMidPeriodHadirSemua.warnings.length === 0,
+    detail: `gross ${cases.joinedMidPeriodHadirSemua.gross}, warning: ${cases.joinedMidPeriodHadirSemua.warnings.join(" | ") || "(tidak ada)"}`,
   },
 ];
 

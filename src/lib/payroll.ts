@@ -214,8 +214,11 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
   if (input.payType === "monthly") {
     const effectiveStart =
       input.joinedAt && input.joinedAt > input.period.start ? input.joinedAt : input.period.start;
-    const workDays = countWorkDays(effectiveStart, effectiveEnd);
-    const denominator = Math.max(1, workDays);
+    // Denominator prorata selalu hari kerja periode penuh. Rentang kerja yang lebih pendek
+    // (baru bergabung / sudah berhenti) hanya memotong pembilang — kalau denominator ikut
+    // mengecil, karyawan yang bekerja sebagian periode malah dibayar 100% gaji bulanan.
+    const denominator = Math.max(1, countWorkDays(input.period.start, input.period.end));
+    const employedWorkDays = countWorkDays(effectiveStart, effectiveEnd);
     const attendedDates = new Set(
       timeEntries
         .filter((e) => e.clockOutAt && e.workDate >= effectiveStart)
@@ -239,29 +242,27 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
 
     const paidLeaveDays = paidLeaveDates.size;
     const unpaidLeaveDays = unpaidLeaveDates.size;
-    // Tanpa absensi sama sekali karyawan bulanan tetap dibayar penuh (tidak wajib
-    // clock-in) — tapi hanya bila batas masa kerjanya diketahui: masih aktif, atau sudah
-    // berhenti di `endedAt`. Karyawan nonaktif tanpa tanggal berhenti tidak boleh
-    // menerima sebulan penuh; upahnya mengikuti absensi. `endedAt` sendiri sudah
-    // memotong rentang lewat `effectiveEnd`, termasuk untuk karyawan yang masih aktif.
-    // Rentang kerja yang tidak memuat satu hari kerja pun = tidak ada gaji bulanan.
+    // Tanpa absensi sama sekali karyawan bulanan tetap dibayar untuk seluruh rentang
+    // kerjanya (tidak wajib clock-in) — tapi hanya bila batas masa kerjanya diketahui:
+    // masih aktif, atau sudah berhenti di `endedAt`. Karyawan nonaktif tanpa tanggal
+    // berhenti tidak boleh menerima upah penuh; upahnya mengikuti absensi. `endedAt`
+    // sendiri sudah memotong rentang lewat `effectiveEnd`, termasuk untuk karyawan yang
+    // masih aktif. Rentang kerja yang tidak memuat satu hari kerja pun = tidak ada gaji.
     const paysWholeRange = stillEmployed || Boolean(input.endedAt);
     const numerator =
-      workDays === 0
+      employedWorkDays === 0
         ? 0
         : attended === 0
           ? paysWholeRange
-            ? denominator
+            ? employedWorkDays
             : 0
-          : Math.min(attended + paidLeaveDays, denominator);
+          : Math.min(attended + paidLeaveDays, employedWorkDays);
     const amount = Math.round((numerator / denominator) * rate);
 
     const baseLabel =
-      attended === 0
-        ? "Gaji bulanan"
-        : numerator === denominator
-          ? "Gaji bulanan (penuh)"
-          : `Gaji bulanan (prorata ${numerator}/${denominator} hari)`;
+      numerator === denominator
+        ? "Gaji bulanan (penuh)"
+        : `Gaji bulanan (prorata ${numerator}/${denominator} hari)`;
 
     if (numerator > 0) {
       lines.push({
@@ -273,6 +274,7 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
         amount,
         meta: {
           workDays: denominator,
+          employedWorkDays,
           attendedDays: attended,
           paidLeaveDays,
           unpaidLeaveDays,
@@ -280,11 +282,14 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
       });
     }
 
-    if (attended > 0 && numerator < denominator) {
+    // Prorata karena rentang kerja pendek (baru bergabung / sudah berhenti) bukan
+    // "tidak hadir", jadi peringatan hanya muncul bila hari kerja dalam rentang kerja
+    // itu sendiri masih ada yang tidak terpakai.
+    if (attended > 0 && numerator < employedWorkDays) {
       warnings.push(
         paidLeaveDays > 0
-          ? `Hadir ${attended} hari + cuti berbayar ${paidLeaveDays} hari dari ${denominator} hari kerja — gaji diprorata otomatis.`
-          : `Kehadiran ${numerator} dari ${denominator} hari kerja — gaji diprorata otomatis.`,
+          ? `Hadir ${attended} hari + cuti berbayar ${paidLeaveDays} hari dari ${employedWorkDays} hari kerja masa kerja — gaji diprorata otomatis.`
+          : `Kehadiran ${numerator} dari ${employedWorkDays} hari kerja masa kerja — gaji diprorata otomatis.`,
       );
     }
 
