@@ -99,8 +99,8 @@ export function McpConnectionPanel({
     );
   }
 
-  const connectionUrl = `${serverUrl}?key=${token}`;
-  const maskedConnectionUrl = `${serverUrl}?key=${MASK}`;
+  const connectionUrl = `${serverUrl}/${token}`;
+  const maskedConnectionUrl = `${serverUrl}/${MASK}`;
   const authorization = `Bearer ${token}`;
   const maskedAuthorization = `Bearer ${MASK}`;
 
@@ -117,7 +117,8 @@ export function McpConnectionPanel({
           <div>
             <h3 className="text-sm font-medium">Connection URL</h3>
             <p className="text-xs text-muted-foreground">
-              Pakai ini kalau client hanya meminta satu URL server MCP.
+              Satu URL lengkap — token sudah ada di path, jadi tidak perlu header. Cocok untuk
+              client yang hanya meminta Server URL.
             </p>
           </div>
           <SecretField value={connectionUrl} masked={maskedConnectionUrl} label="Connection URL" />

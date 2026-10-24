@@ -66,12 +66,30 @@ export function decryptToken(payload: string): string | null {
   }
 }
 
-/** Ambil token dari header `Authorization: Bearer …` atau query `?key=…`. */
-export function readToken(request: Request): string | null {
+/** Decode token dari segmen path; escape `%` yang rusak dianggap bukan token. */
+function decodePathToken(value: string): string | null {
+  try {
+    return decodeURIComponent(value).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ambil token dengan urutan prioritas:
+ * 1. header `Authorization: Bearer …`;
+ * 2. segmen path `…/api/mcp/<token>`;
+ * 3. query `?key=…` / `?api_key=…` (bentuk lama, tetap didukung).
+ */
+export function readToken(request: Request, pathToken?: string | null): string | null {
   const header = request.headers.get("authorization");
   if (header) {
     const match = /^Bearer\s+(.+)$/i.exec(header.trim());
     if (match) return match[1].trim();
+  }
+  if (pathToken) {
+    const fromPath = decodePathToken(pathToken);
+    if (fromPath) return fromPath;
   }
   const url = new URL(request.url);
   const fromQuery = url.searchParams.get("key") ?? url.searchParams.get("api_key");

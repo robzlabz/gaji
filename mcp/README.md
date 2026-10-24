@@ -8,7 +8,7 @@ Ada dua cara memakainya:
 
 | Transport | Kapan dipakai |
 | --- | --- |
-| **Streamable HTTP** (default) — endpoint `/api/mcp` di aplikasi Next.js | Client remote yang cukup diberi URL + header. Kunci akses dibuat/dicabut dari halaman **Pengaturan → MCP** (`/admin/mcp`). Tidak mendaftarkan `gaji_query`. |
+| **Streamable HTTP** (default) — endpoint `/api/mcp` di aplikasi Next.js | Client remote yang cukup diberi satu URL (`<APP_URL>/api/mcp/<KEY>`) tanpa header. Kunci akses dibuat/dicabut dari halaman **Pengaturan → MCP** (`/admin/mcp`). Tidak mendaftarkan `gaji_query`. |
 | stdio — `npm run mcp` | Client lokal yang hanya bisa menjalankan proses (mis. Claude Desktop lama). Tanpa API key, membaca semua tenant, dan satu-satunya transport yang mendaftarkan `gaji_query`. |
 
 ## Kenapa baca DB, bukan HTTP API?
@@ -29,10 +29,13 @@ dilaporkan AI identik dengan dashboard. Pengamanannya:
 ### Endpoint
 
 ```
-POST <APP_URL>/api/mcp          # JSON-RPC MCP (initialize, tools/list, tools/call, …)
-GET  <APP_URL>/api/mcp          # 405 — server stateless, tidak ada stream untuk di-subscribe
-DELETE <APP_URL>/api/mcp        # 405 — tidak ada sesi yang perlu dihapus
+POST <APP_URL>/api/mcp/gk_…     # JSON-RPC MCP lewat Connection URL (cara utama)
+GET  <APP_URL>/api/mcp/gk_…     # 405 — server stateless, tidak ada stream untuk di-subscribe
+DELETE <APP_URL>/api/mcp/gk_…   # 405 — tidak ada sesi yang perlu dihapus
 ```
+
+Bentuk lama tanpa token di path tetap dilayani oleh `<APP_URL>/api/mcp` (token lewat
+header atau query, lihat [Autentikasi](#autentikasi)).
 
 Mode **stateless**: server + transport baru dibuat untuk setiap request, tanpa session id, dan
 `enableJsonResponse: true` (balasan JSON, bukan SSE). Cocok untuk server read-only dan aman kalau
@@ -40,14 +43,29 @@ app dijalankan lebih dari satu replika.
 
 ### Autentikasi
 
-Dua bentuk, isinya sama:
+Tiga bentuk, isinya sama. Server membaca token dengan urutan: header `Authorization`,
+lalu segmen path, lalu query.
+
+**1. URL berbasis path (cara utama, yang ditampilkan di `/admin/mcp`)**
+
+```
+<APP_URL>/api/mcp/gk_…
+```
+
+Cukup satu URL — client Streamable HTTP tidak perlu header tambahan. Token pada path
+di-decode sebagai URI component.
+
+**2. Header Bearer**
 
 ```http
 Authorization: Bearer gk_…
 ```
 
+**3. Query (bentuk lama, tetap didukung)**
+
 ```
 <APP_URL>/api/mcp?key=gk_…
+<APP_URL>/api/mcp?api_key=gk_…
 ```
 
 Tanpa token valid → `401` dengan body JSON-RPC `-32001` (server tidak menyentuh database).
@@ -95,10 +113,23 @@ tenant — jalankan hanya di mesin tepercaya atau dengan user Postgres yang hakn
 
 ### Pasang di client
 
-ChatGPT / Claude / Cursor (remote MCP): tempel **Connection URL** dari `/admin/mcp`, atau isi
-Server URL `<APP_URL>/api/mcp` + header `Authorization: Bearer gk_…`.
+ChatGPT / Claude / Cursor (remote MCP): tempel **Connection URL** dari `/admin/mcp`
+(`<APP_URL>/api/mcp/<KEY>`) sebagai Server URL — tidak perlu header. Alternatifnya, isi Server
+URL `<APP_URL>/api/mcp` + header `Authorization: Bearer gk_…`.
 
-nanobot (`~/.nanobot/config.json`, bagian `mcp_servers`) memakai bentuk yang sama:
+nanobot (`~/.nanobot/config.json`, bagian `mcp_servers`) memakai URL lengkap:
+
+```json
+{
+  "mcp_servers": {
+    "gaji": {
+      "url": "https://gaji.timbolu.com/api/mcp/gk_…"
+    }
+  }
+}
+```
+
+Kalau client lebih nyaman dengan header, bentuk lama tetap jalan:
 
 ```json
 {
@@ -175,7 +206,7 @@ dan periode gaji mengikuti `pay_period_start_day` masing-masing org.
 
 ```bash
 cd web
-npm run mcp:smoke:http -- --port 3001        # HTTP: 401 token salah, initialize, tools/list (tanpa gaji_query), 4 tool call, cek scope tenant
+npm run mcp:smoke:http -- --port 3001        # HTTP: 401 token salah, URL /api/mcp/<key> tanpa header, initialize, tools/list (tanpa gaji_query), 4 tool call, cek scope tenant
 npm run mcp:smoke:http -- --port 3001 --key gk_…
 npm run mcp:smoke                            # stdio: panggil semua tool (termasuk gaji_query)
 ```

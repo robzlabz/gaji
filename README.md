@@ -102,7 +102,7 @@ Akun ini hanya untuk data demo lokal. Jangan gunakan kredensial tersebut di ling
 
 ## Integrasi MCP
 
-Gaji menyediakan data payroll dan tenaga kerja secara read-only untuk klien AI yang kompatibel melalui endpoint Streamable HTTP `/api/mcp`. Halaman **MCP** di dashboard admin (`/admin/mcp`) menampilkan informasi koneksi dan menyediakan pengelolaan API key. Setiap key dibatasi untuk satu organisasi.
+Gaji menyediakan data payroll dan tenaga kerja secara read-only untuk klien AI yang kompatibel melalui endpoint Streamable HTTP `/api/mcp`. Connection URL berbentuk `<APP_URL>/api/mcp/<KEY>`, jadi client cukup diberi satu URL tanpa header (header `Authorization: Bearer` dan bentuk lama `?key=` tetap didukung). Halaman **MCP** di dashboard admin (`/admin/mcp`) menampilkan informasi koneksi dan menyediakan pengelolaan API key. Setiap key dibatasi untuk satu organisasi.
 
 Tool MCP mencakup ringkasan harian, absensi, antrean persetujuan, pratinjau payroll, kasbon, kontrak yang akan berakhir, dan audit log. Query dijalankan dalam transaksi database read-only dengan batas waktu 20 detik.
 
