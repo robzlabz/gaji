@@ -255,7 +255,10 @@ export default async function EmployeeDetailPage({
                 defaultValue={Math.round(toNumber(employee.transportRate))}
               />
             </FormField>
-            <FormField label="Tanggal berhenti" hint="Kosongkan bila masih aktif">
+            <FormField
+              label="Tanggal berhenti"
+              hint="Kosongkan bila masih aktif; otomatis diisi hari ini saat karyawan dinonaktifkan."
+            >
               <Input type="date" name="endedAt" defaultValue={employee.endedAt ?? ""} />
             </FormField>
             <CheckField name="isActive" label="Karyawan aktif" defaultChecked={employee.isActive} />
