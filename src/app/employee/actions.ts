@@ -315,7 +315,7 @@ export async function submitTaskAction(formData: FormData) {
   ok(TASK_LIST, "Pengajuan tugas terkirim. Admin akan mengisi harga dan menyetujuinya.");
 }
 
-/** Karyawan memperbaiki tugas yang belum diputuskan admin. */
+/** Karyawan memperbaiki pengajuan tugasnya sebelum diputuskan admin. */
 export async function updateTaskAction(formData: FormData) {
   const { org, employee } = await requireEmployee();
   const taskId = str(formData, "taskId");
@@ -335,7 +335,7 @@ export async function updateTaskAction(formData: FormData) {
 
   if (!task) fail(TASK_LIST, "Tugas tidak ditemukan.");
   if (!isTaskEditable(task.status)) {
-    fail(TASK_LIST, "Tugas yang sudah diputuskan admin tidak bisa diubah.");
+    fail(TASK_LIST, "Tugas ini tidak bisa diubah karyawan.");
   }
 
   const title = str(formData, "title");
@@ -346,7 +346,7 @@ export async function updateTaskAction(formData: FormData) {
 
   const workDate = dateField(formData, "workDate") ?? task.workDate;
 
-  await db
+  const [row] = await db
     .update(workTasks)
     .set({
       title,
@@ -355,7 +355,17 @@ export async function updateTaskAction(formData: FormData) {
       unit: str(formData, "unit") || "tugas",
       workDate,
     })
-    .where(eq(workTasks.id, task.id));
+    .where(
+      and(
+        eq(workTasks.id, task.id),
+        eq(workTasks.orgId, org.id),
+        eq(workTasks.employeeId, employee.id),
+        eq(workTasks.status, "requested"),
+      ),
+    )
+    .returning({ id: workTasks.id });
+
+  if (!row) fail(TASK_LIST, "Tugas ini tidak bisa diubah karyawan.");
 
   await audit({
     orgId: org.id,
