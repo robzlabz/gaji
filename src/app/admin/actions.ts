@@ -253,7 +253,11 @@ export async function updateEmployeeAction(formData: FormData) {
     ? Math.max(0, parseMoneyInput(formData.get("transportRate")))
     : toNumber(current.transportRate);
   const isActive = str(formData, "isActive") === "on";
-  const endedAt = optionalStr(formData, "endedAt");
+  // Berhenti tanpa mengisi tanggal: isi otomatis hari ini (zona waktu organisasi)
+  // supaya payroll tahu batas akhir upah. Tanggal berhenti yang sudah ada tidak ditimpa.
+  const endedAt =
+    optionalStr(formData, "endedAt") ??
+    (!isActive ? current.endedAt ?? localDateString(new Date(), org.timezone) : null);
 
 
   const rateChanged =
