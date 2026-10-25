@@ -1094,6 +1094,8 @@ export async function decideAdvanceAction(formData: FormData) {
   const advanceId = str(formData, "advanceId");
   const decision = str(formData, "decision");
 
+  if (decision !== "approve" && decision !== "reject") fail("/admin/kasbon", "Keputusan tidak valid.");
+
   const [advance] = await db
     .select()
     .from(cashAdvances)
@@ -1101,14 +1103,33 @@ export async function decideAdvanceAction(formData: FormData) {
     .limit(1);
 
   if (!advance) fail("/admin/kasbon", "Kasbon tidak ditemukan.");
+  if (advance.status !== "pending") fail("/admin/kasbon", "Kasbon sudah diputuskan.");
 
-  if (decision === "approve") {
-    await db.transaction(async (tx) => {
-      await tx
-        .update(cashAdvances)
-        .set({ status: "approved", approvedBy: user.id, approvedAt: new Date() })
-        .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)));
+  // Kondisi status dijaga di dalam transaksi supaya submit ganda / dua admin tidak
+  // mencairkan kasbon dua kali.
+  let decided = false;
+  await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(cashAdvances)
+      .set({
+        status: decision === "approve" ? "approved" : "rejected",
+        approvedBy: user.id,
+        approvedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(cashAdvances.id, advanceId),
+          eq(cashAdvances.orgId, org.id),
+          eq(cashAdvances.status, "pending"),
+        ),
+      )
+      .returning({ id: cashAdvances.id });
 
+    // Tidak ada baris yang cocok = sudah diputuskan admin lain; jangan cairkan uangnya.
+    if (!updated) return;
+    decided = true;
+
+    if (decision === "approve") {
       await tx.insert(cashAdvanceTxns).values({
         cashAdvanceId: advanceId,
         kind: "disburse",
@@ -1117,13 +1138,10 @@ export async function decideAdvanceAction(formData: FormData) {
         note: "Pencairan kasbon",
         createdBy: user.id,
       });
-    });
-  } else {
-    await db
-      .update(cashAdvances)
-      .set({ status: "rejected", approvedBy: user.id, approvedAt: new Date() })
-      .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)));
-  }
+    }
+  });
+
+  if (!decided) fail("/admin/kasbon", "Kasbon sudah diputuskan.");
 
   await audit({
     orgId: org.id,
