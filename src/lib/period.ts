@@ -43,6 +43,28 @@ function dayBefore(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+function dayAfter(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Dua periode beririsan (inklusif) — dipakai untuk mencegah hari dibayar dua kali. */
+export function periodsOverlap(a: Period, b: Period): boolean {
+  return a.start <= b.end && a.end >= b.start;
+}
+
+/**
+ * Periode transisi setelah periode terakhir yang sudah dihitung.
+ * Mulai sehari setelah `lastEnd` dan berakhir di akhir periode yang memuat hari itu
+ * menurut `startDay` terbaru. Dipakai saat tanggal mulai periode diubah.
+ */
+export function transitionPeriod(lastEnd: string, startDay: number): Period {
+  const start = dayAfter(lastEnd);
+  // Awal tetap sehari setelah periode terakhir; hanya akhirnya yang ikut periode baru.
+  return { start, end: periodContaining(start, startDay).end };
+}
+
 /**
  * Geser awal periode sebanyak `months`.
  * `start` harus berupa awal periode untuk `startDay` (tanggal mulai asli dari

@@ -32,9 +32,15 @@ export function taskStatusTone(status: string): Tone {
   }
 }
 
-/** Karyawan hanya boleh mengubah tugas yang belum diputuskan admin. */
+/**
+ * Karyawan hanya boleh mengubah pengajuan tugasnya sendiri (`requested`).
+ *
+ * Tugas buatan admin (`open`/`done`) tidak boleh diubah karyawan: qty, satuan, dan
+ * tanggalnya ditetapkan admin bersama tarifnya, jadi mengubah salah satunya bisa
+ * membuat upah tidak sesuai tarif yang disetujui.
+ */
 export function isTaskEditable(status: string): boolean {
-  return status === "requested" || status === "open";
+  return status === "requested";
 }
 
 /** Tugas yang sudah dikirim karyawan tapi harganya belum diisi admin. */

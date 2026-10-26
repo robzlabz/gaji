@@ -50,6 +50,9 @@ import { findCountry } from "@/lib/countries";
 /** Zona waktu yang boleh dipilih; menentukan batas tanggal absensi & periode gaji. */
 const TIMEZONE_OPTIONS = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"];
 
+/** Format tanggal tunggal YYYY-MM-DD; nilai custom dari form wajib lolos ini. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 function str(fd: FormData, key: string): string {
   const value = fd.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -253,7 +256,11 @@ export async function updateEmployeeAction(formData: FormData) {
     ? Math.max(0, parseMoneyInput(formData.get("transportRate")))
     : toNumber(current.transportRate);
   const isActive = str(formData, "isActive") === "on";
-  const endedAt = optionalStr(formData, "endedAt");
+  // Berhenti tanpa mengisi tanggal: isi otomatis hari ini (zona waktu organisasi)
+  // supaya payroll tahu batas akhir upah. Tanggal berhenti yang sudah ada tidak ditimpa.
+  const endedAt =
+    optionalStr(formData, "endedAt") ??
+    (!isActive ? current.endedAt ?? localDateString(new Date(), org.timezone) : null);
 
 
   const rateChanged =
@@ -1094,6 +1101,8 @@ export async function decideAdvanceAction(formData: FormData) {
   const advanceId = str(formData, "advanceId");
   const decision = str(formData, "decision");
 
+  if (decision !== "approve" && decision !== "reject") fail("/admin/kasbon", "Keputusan tidak valid.");
+
   const [advance] = await db
     .select()
     .from(cashAdvances)
@@ -1101,14 +1110,33 @@ export async function decideAdvanceAction(formData: FormData) {
     .limit(1);
 
   if (!advance) fail("/admin/kasbon", "Kasbon tidak ditemukan.");
+  if (advance.status !== "pending") fail("/admin/kasbon", "Kasbon sudah diputuskan.");
 
-  if (decision === "approve") {
-    await db.transaction(async (tx) => {
-      await tx
-        .update(cashAdvances)
-        .set({ status: "approved", approvedBy: user.id, approvedAt: new Date() })
-        .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)));
+  // Kondisi status dijaga di dalam transaksi supaya submit ganda / dua admin tidak
+  // mencairkan kasbon dua kali.
+  let decided = false;
+  await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(cashAdvances)
+      .set({
+        status: decision === "approve" ? "approved" : "rejected",
+        approvedBy: user.id,
+        approvedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(cashAdvances.id, advanceId),
+          eq(cashAdvances.orgId, org.id),
+          eq(cashAdvances.status, "pending"),
+        ),
+      )
+      .returning({ id: cashAdvances.id });
 
+    // Tidak ada baris yang cocok = sudah diputuskan admin lain; jangan cairkan uangnya.
+    if (!updated) return;
+    decided = true;
+
+    if (decision === "approve") {
       await tx.insert(cashAdvanceTxns).values({
         cashAdvanceId: advanceId,
         kind: "disburse",
@@ -1117,13 +1145,10 @@ export async function decideAdvanceAction(formData: FormData) {
         note: "Pencairan kasbon",
         createdBy: user.id,
       });
-    });
-  } else {
-    await db
-      .update(cashAdvances)
-      .set({ status: "rejected", approvedBy: user.id, approvedAt: new Date() })
-      .where(and(eq(cashAdvances.id, advanceId), eq(cashAdvances.orgId, org.id)));
-  }
+    }
+  });
+
+  if (!decided) fail("/admin/kasbon", "Kasbon sudah diputuskan.");
 
   await audit({
     orgId: org.id,
@@ -1635,26 +1660,44 @@ export async function createPayrollRunAction(formData: FormData) {
     : [str(formData, "periodStart"), str(formData, "periodEnd")];
   const payDate = optionalStr(formData, "payDate");
 
-  if (!periodStart || !periodEnd || periodEnd < periodStart) {
+  if (
+    !periodStart ||
+    !periodEnd ||
+    periodEnd < periodStart ||
+    !DATE_ONLY.test(periodStart) ||
+    !DATE_ONLY.test(periodEnd)
+  ) {
     fail("/admin/payroll", "Rentang periode tidak valid.");
   }
 
-  // Tolak periode yang bertumpuk dengan periode mana pun, termasuk yang sudah void:
-  // DB punya UNIQUE(org_id, period_start) sehingga baris void tetap menempati tanggal mulai.
-  const [overlap] = await db
+  // Indeks unik (org_id, period_start): baris void pun tetap menempati tanggal mulai ini.
+  const [existing] = await db
     .select({ id: payPeriods.id })
+    .from(payPeriods)
+    .where(and(eq(payPeriods.orgId, org.id), eq(payPeriods.periodStart, periodStart)))
+    .limit(1);
+
+  if (existing) fail("/admin/payroll", "Periode ini sudah pernah dihitung.");
+
+  // Rentang yang beririsan walau tanggal mulainya beda (mis. setelah tanggal mulai periode diubah).
+  const [overlapping] = await db
+    .select({ periodStart: payPeriods.periodStart, periodEnd: payPeriods.periodEnd })
     .from(payPeriods)
     .where(
       and(
         eq(payPeriods.orgId, org.id),
+        ne(payPeriods.status, "void"),
         lte(payPeriods.periodStart, periodEnd),
         gte(payPeriods.periodEnd, periodStart),
       ),
     )
     .limit(1);
 
-  if (overlap) {
-    fail("/admin/payroll", "Periode ini bertumpuk dengan periode yang sudah pernah dihitung.");
+  if (overlapping) {
+    fail(
+      "/admin/payroll",
+      `Periode ${formatDateID(periodStart)}–${formatDateID(periodEnd)} beririsan dengan periode ${formatDateID(overlapping.periodStart)}–${formatDateID(overlapping.periodEnd)} yang sudah dihitung. Pilih periode yang tidak beririsan.`,
+    );
   }
 
   const preview = await previewPayroll(

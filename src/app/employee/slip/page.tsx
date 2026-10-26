@@ -27,6 +27,8 @@ export default async function EmployeePayslips() {
       payType: employee.payType,
       payRate: employee.payRate,
       joinedAt: employee.joinedAt,
+      endedAt: employee.endedAt,
+      isActive: employee.isActive,
     },
     period,
     overtimeMultiplier: toNumber(org.overtimeMultiplier),

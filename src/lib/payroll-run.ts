@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, gte, inArray, isNull, lt, lte, ne, notExists } from "drizzle-orm";
+import { and, eq, exists, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, notExists, or } from "drizzle-orm";
 import { db } from "@/db";
 import {
   cashAdvancePlans,
@@ -78,10 +78,103 @@ export async function previewPayroll(
   settings: { overtimeMultiplier: number },
   conn: Conn = db,
 ): Promise<PayrollPreview> {
+  // Masa kerja beririsan dengan periode: batas `endedAt` berlaku untuk semua karyawan,
+  // termasuk yang masih ditandai aktif (berhenti 30 Sep tidak dibayar untuk Oktober).
+  // Karyawan aktif dipilih lewat `inEmploymentRange`; karyawan nonaktif tetap ikut bila
+  // tanggal berhentinya beririsan dengan periode (mis. berhenti 16 Okt — karyawan bulanan
+  // tetap dibayar 1–16 Okt meski tanpa absensi) atau masih punya absensi/tugas approved
+  // atau kasbon aktif pada periode itu, supaya upah dan potongan kasbonnya tidak hilang.
+  const inEmploymentRange = and(
+    or(isNull(employees.joinedAt), lte(employees.joinedAt, period.end)),
+    or(isNull(employees.endedAt), gte(employees.endedAt, period.start)),
+  );
+
+  // Tugas lama yang belum pernah masuk slip periode lain: dibayar pada periode ini
+  // sebagai bawaan (lihat `carriedTasks`). Dipakai juga untuk mendeteksi aktivitas.
+  const carriedTaskCondition = and(
+    lt(workTasks.workDate, period.start),
+    notExists(
+      conn
+        .select({ id: payslipItems.id })
+        .from(payslipItems)
+        .innerJoin(payslips, eq(payslipItems.payslipId, payslips.id))
+        .innerJoin(payPeriods, eq(payslips.payPeriodId, payPeriods.id))
+        .where(
+          and(
+            eq(payslipItems.sourceTable, "work_tasks"),
+            eq(payslipItems.sourceId, workTasks.id),
+            ne(payPeriods.status, "void"),
+            ne(payPeriods.periodStart, period.start),
+          ),
+        ),
+    ),
+  );
+
+  const hasPeriodActivity = or(
+    exists(
+      conn
+        .select({ id: timeEntries.id })
+        .from(timeEntries)
+        .where(
+          and(
+            eq(timeEntries.orgId, orgId),
+            eq(timeEntries.employeeId, employees.id),
+            eq(timeEntries.status, "approved"),
+            isNull(timeEntries.deletedAt),
+            gte(timeEntries.workDate, period.start),
+            lte(timeEntries.workDate, period.end),
+          ),
+        ),
+    ),
+    exists(
+      conn
+        .select({ id: workTasks.id })
+        .from(workTasks)
+        .where(
+          and(
+            eq(workTasks.orgId, orgId),
+            eq(workTasks.employeeId, employees.id),
+            eq(workTasks.status, "approved"),
+            // Sama dengan tugas yang dimuat untuk slip: dalam periode ini, atau
+            // tugas lama yang belum pernah dibayar (lihat `carriedTasks`).
+            or(
+              and(gte(workTasks.workDate, period.start), lte(workTasks.workDate, period.end)),
+              carriedTaskCondition,
+            ),
+          ),
+        ),
+    ),
+    exists(
+      conn
+        .select({ id: cashAdvances.id })
+        .from(cashAdvances)
+        .where(
+          and(
+            eq(cashAdvances.orgId, orgId),
+            eq(cashAdvances.employeeId, employees.id),
+            eq(cashAdvances.status, "approved"),
+            gt(cashAdvances.balance, "0"),
+            lte(cashAdvances.requestedAt, period.end),
+          ),
+        ),
+    ),
+  );
+
   const staff = await conn
     .select()
     .from(employees)
-    .where(and(eq(employees.orgId, orgId), eq(employees.isActive, true)));
+    .where(
+      and(
+        eq(employees.orgId, orgId),
+        or(
+          and(eq(employees.isActive, true), inEmploymentRange),
+          and(
+            eq(employees.isActive, false),
+            or(and(isNotNull(employees.endedAt), inEmploymentRange), hasPeriodActivity),
+          ),
+        ),
+      ),
+    );
 
   const employeeIds = staff.map((e) => e.id);
 
@@ -124,22 +217,7 @@ export async function previewPayroll(
       and(
         eq(workTasks.orgId, orgId),
         eq(workTasks.status, "approved"),
-        lt(workTasks.workDate, period.start),
-        notExists(
-          conn
-            .select({ id: payslipItems.id })
-            .from(payslipItems)
-            .innerJoin(payslips, eq(payslipItems.payslipId, payslips.id))
-            .innerJoin(payPeriods, eq(payslips.payPeriodId, payPeriods.id))
-            .where(
-              and(
-                eq(payslipItems.sourceTable, "work_tasks"),
-                eq(payslipItems.sourceId, workTasks.id),
-                ne(payPeriods.status, "void"),
-                ne(payPeriods.periodStart, period.start),
-              ),
-            ),
-        ),
+        carriedTaskCondition,
       ),
     );
 
@@ -287,6 +365,8 @@ export async function previewPayroll(
       payRate: employee.payRate,
       period,
       joinedAt: employee.joinedAt,
+      endedAt: employee.endedAt,
+      isActive: employee.isActive,
       overtimeMultiplier: settings.overtimeMultiplier,
       saldoCovered: saldo.covered,
       timeEntries: entries

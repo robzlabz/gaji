@@ -48,6 +48,9 @@ export type EstimateEmployee = {
   payType: string;
   payRate: string;
   joinedAt: string | null;
+  endedAt?: string | null;
+  /** Lihat `ComputeInput.isActive`: hanya memengaruhi aturan `paysWholeRange`. */
+  isActive?: boolean;
 };
 
 /**
@@ -193,6 +196,8 @@ export async function estimatePay(params: {
       payRate: employee.payRate,
       period,
       joinedAt: employee.joinedAt,
+      endedAt: employee.endedAt,
+      isActive: employee.isActive,
       overtimeMultiplier,
       timeEntries: entries
         .filter((entry) => (includePending ? entry.status !== "rejected" : entry.status === "approved"))

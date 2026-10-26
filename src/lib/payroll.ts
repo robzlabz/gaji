@@ -85,6 +85,14 @@ export type ComputeInput = {
   payRate: string | number;
   period: Period;
   joinedAt?: string | null;
+  /** Tanggal berhenti; batas akhir upah & prorata gaji bulanan bila diisi dan sebelum akhir periode. */
+  endedAt?: string | null;
+  /**
+   * Status karyawan. Dipakai hanya untuk aturan `paysWholeRange`: karyawan nonaktif tanpa
+   * `endedAt` mengikuti absensi, sedangkan karyawan aktif tetap dibayar penuh rentang kerja.
+   * Default: aktif.
+   */
+  isActive?: boolean;
   timeEntries: TimeEntryInput[];
   tasks: TaskInput[];
   advances: AdvanceInput[];
@@ -118,7 +126,16 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
   const lines: PayLine[] = [];
   const warnings: string[] = [];
 
-  const open = input.timeEntries.filter((e) => !e.clockOutAt);
+  // Tanggal berhenti adalah batas akhir upah apa pun status karyawannya: absensi/tugas
+  // setelahnya tidak dibayar, dan gaji bulanan diprorata sampai tanggal itu (cermin dari
+  // prorata `joinedAt`). Status aktif hanya dipakai untuk aturan `paysWholeRange` di bawah.
+  const stillEmployed = input.isActive !== false;
+  const effectiveEnd =
+    input.endedAt && input.endedAt < input.period.end ? input.endedAt : input.period.end;
+  const timeEntries = input.timeEntries.filter((entry) => entry.workDate <= effectiveEnd);
+  const tasks = input.tasks.filter((task) => task.workDate <= effectiveEnd);
+
+  const open = timeEntries.filter((e) => !e.clockOutAt);
   if (open.length > 0) {
     warnings.push(`${open.length} absensi belum clock-out dan tidak dihitung.`);
   }
@@ -130,7 +147,7 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     let overtimeWage = 0;
     const ratesUsed = new Set<number>();
 
-    for (const entry of input.timeEntries) {
+    for (const entry of timeEntries) {
       const minutes = workedMinutes(entry);
       if (minutes <= 0) continue;
       // Tarif per kedatangan ("tarif saat kejadian") supaya absensi bulan lalu tidak
@@ -181,7 +198,7 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
   }
 
   if (input.payType === "daily") {
-    const days = new Set(input.timeEntries.filter((e) => e.clockOutAt).map((e) => e.workDate)).size;
+    const days = new Set(timeEntries.filter((e) => e.clockOutAt).map((e) => e.workDate)).size;
     if (days > 0) {
       lines.push({
         kind: "regular",
@@ -197,9 +214,13 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
   if (input.payType === "monthly") {
     const effectiveStart =
       input.joinedAt && input.joinedAt > input.period.start ? input.joinedAt : input.period.start;
-    const denominator = Math.max(1, countWorkDays(effectiveStart, input.period.end));
+    // Denominator prorata selalu hari kerja periode penuh. Rentang kerja yang lebih pendek
+    // (baru bergabung / sudah berhenti) hanya memotong pembilang — kalau denominator ikut
+    // mengecil, karyawan yang bekerja sebagian periode malah dibayar 100% gaji bulanan.
+    const denominator = Math.max(1, countWorkDays(input.period.start, input.period.end));
+    const employedWorkDays = countWorkDays(effectiveStart, effectiveEnd);
     const attendedDates = new Set(
-      input.timeEntries
+      timeEntries
         .filter((e) => e.clockOutAt && e.workDate >= effectiveStart)
         .map((e) => e.workDate),
     );
@@ -213,7 +234,7 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
       if (leave.status !== "approved") continue;
       const bucket = leave.paid ? paidLeaveDates : unpaidLeaveDates;
       for (const day of workDatesBetween(leave.startDate, leave.endDate)) {
-        if (day < effectiveStart || day > input.period.end) continue;
+        if (day < effectiveStart || day > effectiveEnd) continue;
         if (attendedDates.has(day)) continue;
         bucket.add(day);
       }
@@ -221,39 +242,54 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
 
     const paidLeaveDays = paidLeaveDates.size;
     const unpaidLeaveDays = unpaidLeaveDates.size;
-    // Tanpa absensi sama sekali karyawan bulanan tetap dibayar penuh (tidak wajib
-    // clock-in), jadi cuti tidak boleh menurunkan gaji pada kondisi itu.
+    // Tanpa absensi sama sekali karyawan bulanan tetap dibayar untuk seluruh rentang
+    // kerjanya (tidak wajib clock-in) — tapi hanya bila batas masa kerjanya diketahui:
+    // masih aktif, atau sudah berhenti di `endedAt`. Karyawan nonaktif tanpa tanggal
+    // berhenti tidak boleh menerima upah penuh; upahnya mengikuti absensi. `endedAt`
+    // sendiri sudah memotong rentang lewat `effectiveEnd`, termasuk untuk karyawan yang
+    // masih aktif. Rentang kerja yang tidak memuat satu hari kerja pun = tidak ada gaji.
+    const paysWholeRange = stillEmployed || Boolean(input.endedAt);
     const numerator =
-      attended === 0 ? denominator : Math.min(attended + paidLeaveDays, denominator);
+      employedWorkDays === 0
+        ? 0
+        : attended === 0
+          ? paysWholeRange
+            ? employedWorkDays
+            : 0
+          : Math.min(attended + paidLeaveDays, employedWorkDays);
     const amount = Math.round((numerator / denominator) * rate);
 
     const baseLabel =
-      attended === 0
-        ? "Gaji bulanan"
-        : numerator === denominator
-          ? "Gaji bulanan (penuh)"
-          : `Gaji bulanan (prorata ${numerator}/${denominator} hari)`;
+      numerator === denominator
+        ? "Gaji bulanan (penuh)"
+        : `Gaji bulanan (prorata ${numerator}/${denominator} hari)`;
 
-    lines.push({
-      kind: "regular",
-      label: paidLeaveDays > 0 ? `${baseLabel} · ${paidLeaveDays} hari cuti` : baseLabel,
-      qty: round2(numerator),
-      unit: "hari",
-      unitRate: Math.round(rate / denominator),
-      amount,
-      meta: {
-        workDays: denominator,
-        attendedDays: attended,
-        paidLeaveDays,
-        unpaidLeaveDays,
-      },
-    });
+    if (numerator > 0) {
+      lines.push({
+        kind: "regular",
+        label: paidLeaveDays > 0 ? `${baseLabel} · ${paidLeaveDays} hari cuti` : baseLabel,
+        qty: round2(numerator),
+        unit: "hari",
+        unitRate: Math.round(rate / denominator),
+        amount,
+        meta: {
+          workDays: denominator,
+          employedWorkDays,
+          attendedDays: attended,
+          paidLeaveDays,
+          unpaidLeaveDays,
+        },
+      });
+    }
 
-    if (attended > 0 && numerator < denominator) {
+    // Prorata karena rentang kerja pendek (baru bergabung / sudah berhenti) bukan
+    // "tidak hadir", jadi peringatan hanya muncul bila hari kerja dalam rentang kerja
+    // itu sendiri masih ada yang tidak terpakai.
+    if (attended > 0 && numerator < employedWorkDays) {
       warnings.push(
         paidLeaveDays > 0
-          ? `Hadir ${attended} hari + cuti berbayar ${paidLeaveDays} hari dari ${denominator} hari kerja — gaji diprorata otomatis.`
-          : `Kehadiran ${numerator} dari ${denominator} hari kerja — gaji diprorata otomatis.`,
+          ? `Hadir ${attended} hari + cuti berbayar ${paidLeaveDays} hari dari ${employedWorkDays} hari kerja masa kerja — gaji diprorata otomatis.`
+          : `Kehadiran ${numerator} dari ${employedWorkDays} hari kerja masa kerja — gaji diprorata otomatis.`,
       );
     }
 
@@ -267,7 +303,7 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
   // Ongkos kedatangan dihitung untuk semua tipe gaji: yang dibayar per kedatangan
   // adalah kehadirannya, bukan jam kerjanya. Nilainya tersimpan per baris absensi,
   // jadi tarif ongkos yang berubah tidak mengubah kedatangan yang sudah lewat.
-  const transportEntries = input.timeEntries.filter(
+  const transportEntries = timeEntries.filter(
     (entry) => entry.clockOutAt && Math.round(toNumber(entry.transportAmount)) > 0,
   );
   const transportTotal = transportEntries.reduce(
@@ -297,7 +333,7 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
   // per tugas memakainya sebagai penghasilan utama, tipe lain sebagai pendapatan ekstra
   // di samping gaji pokok. Tugas yang telat disetujui dibayar di periode berikutnya
   // (ditandai `carriedOver`) supaya tidak ada upah yang hilang.
-  for (const task of input.tasks) {
+  for (const task of tasks) {
     const qty = toNumber(task.qty);
     const unitRate = toNumber(task.unitRate);
     const baseLabel = input.payType === "per_task" ? task.title : `Tugas: ${task.title}`;

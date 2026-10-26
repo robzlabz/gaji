@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateID, rupiah, toNumber } from "@/lib/format";
 
-export const metadata = { title: "Ubah tugas — Gaji" };
+export const metadata = { title: "Detail tugas — Gaji" };
 
 /** Halaman tersendiri untuk mengubah tugas yang belum diputuskan admin. */
 export default async function EditEmployeeTaskPage({
@@ -43,6 +43,9 @@ export default async function EditEmployeeTaskPage({
   if (!task) notFound();
 
   const editable = isTaskEditable(task.status);
+  // Tugas buatan admin (`open`) atau yang sudah ditandai selesai (`done`) belum
+  // diputuskan admin, tapi isinya tetap milik admin dan tidak bisa diubah karyawan.
+  const adminMade = task.status === "open" || task.status === "done";
 
   return (
     <>
@@ -50,11 +53,15 @@ export default async function EditEmployeeTaskPage({
         <Link href="/employee/tugas" className="text-xs text-muted-foreground hover:underline">
           ← Tugas saya
         </Link>
-        <h1 className="text-lg font-semibold tracking-tight">Ubah tugas</h1>
+        <h1 className="text-lg font-semibold tracking-tight">
+          {editable ? "Ubah tugas" : "Detail tugas"}
+        </h1>
         <p className="text-xs text-muted-foreground">
           {editable
             ? "Perubahan hanya bisa dilakukan sebelum admin memutuskan."
-            : "Tugas ini sudah diputuskan admin, jadi isinya terkunci."}
+            : adminMade
+              ? "Tugas ini dibuat admin, jadi isinya tidak bisa diubah karyawan."
+              : "Tugas ini sudah diputuskan admin, jadi isinya terkunci."}
         </p>
       </header>
 
@@ -102,10 +109,11 @@ export default async function EditEmployeeTaskPage({
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Tidak bisa diubah lagi</CardTitle>
+            <CardTitle>{adminMade ? "Dibuat admin" : "Tidak bisa diubah lagi"}</CardTitle>
             <CardDescription>
-              Tugas yang sudah disetujui atau ditolak admin tidak bisa diubah. Hubungi admin bila
-              ada kekeliruan.
+              {adminMade
+                ? "Tugas ini dibuat admin, jadi isinya (judul, jumlah, satuan, dan tanggal) ditetapkan admin. Hubungi admin bila ada kekeliruan."
+                : "Tugas yang sudah disetujui atau ditolak admin tidak bisa diubah. Hubungi admin bila ada kekeliruan."}
             </CardDescription>
           </CardHeader>
           <CardContent>
