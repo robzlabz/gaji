@@ -1,3 +1,5 @@
+import type { PayType } from "@/db/schema";
+
 /** Pilihan jenis & tipe gaji kontrak — dipakai halaman daftar, tambah, dan ubah kontrak. */
 export const CONTRACT_KIND_OPTIONS = [
   { value: "pkwt", label: "PKWT (kontrak)" },
@@ -12,6 +14,11 @@ export const PAY_TYPE_OPTIONS = [
   { value: "monthly", label: "Per bulan" },
   { value: "per_task", label: "Per tugas" },
 ] as const;
+
+/** Guard tipe gaji: nilai form hanya sah kalau ada di PAY_TYPE_OPTIONS. */
+export function isPayType(value: string): value is PayType {
+  return PAY_TYPE_OPTIONS.some((option) => option.value === value);
+}
 
 /** Jenis kontrak yang wajib punya tanggal berakhir (semua kecuali PKWTT). */
 export function requiresEndDate(kind: string): boolean {
