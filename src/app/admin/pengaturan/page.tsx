@@ -34,7 +34,7 @@ export default async function SettingsPage({
           <form action={updateOrgSettingsAction} className="flex flex-col gap-4">
             <FormField
               label="Tanggal mulai periode gaji"
-              hint="Contoh: 26 → periode 26 Jan s/d 25 Feb. Default 1 = bulan kalender."
+              hint="Contoh: 26 → periode 26 Jan s/d 25 Feb. Default 1 = bulan kalender. Mengubah tanggal mulai tidak mengubah periode yang sudah dihitung. Setelah diubah, halaman Payroll menawarkan satu periode transisi agar tidak ada hari yang dibayar dua kali."
             >
               <Input
                 name="payPeriodStartDay"
