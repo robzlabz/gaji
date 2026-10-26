@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CameraIcon, CheckIcon, MapPinIcon } from "lucide-react";
 import { clockInAction, clockOutAction, saveCaptureAction } from "@/app/employee/actions";
+import type { PayType } from "@/db/schema";
 import { LiveDuration } from "@/components/live-duration";
 import { FormField } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
@@ -51,7 +52,7 @@ export function ClockCard({
   transportRate = 0,
 }: {
   openEntry: OpenEntry | null;
-  payType: "hourly" | "daily" | "monthly" | "per_task";
+  payType: PayType;
   /** Ongkos default per kedatangan (Rp). 0 = karyawan ini tidak dapat ongkos. */
   transportRate?: number;
 }) {

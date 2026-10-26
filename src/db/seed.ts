@@ -108,7 +108,7 @@ async function main() {
     { name: "Sari Dewi", phone: "628333333333", pin: "333333", payType: "daily", rate: "175000", transport: "0", code: "KS-002", joined: iso(-90) },
     { name: "Andi Pratama", phone: "628444444444", pin: "444444", payType: "monthly", rate: "6000000", transport: "0", code: "KS-003", joined: iso(-200) },
     { name: "Rina Wulandari", phone: "628555555555", pin: "555555", payType: "per_task", rate: "20000", transport: "0", code: "KS-004", joined: iso(-45) },
-  ];
+  ] as const;
 
   const created: Record<string, { employeeId: string; userId: string }> = {};
 
