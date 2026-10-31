@@ -351,10 +351,14 @@ for (const check of checks) {
 lines.push("");
 const failedChecks = checks.filter((c) => !c.ok && !c.skipped);
 if (failedChecks.length > 0) {
-  lines.push(
-    "> Cek bertanda `!` adalah masalah yang sudah diketahui dan masih terbuka — rilis tetap dibuat, " +
-      "tetapi statusnya jujur dicatat di sini. Lihat `docs/roadmap-mvp.md` untuk rencana perbaikannya.",
-  );
+  lines.push("**Cek yang gagal:**");
+  lines.push("");
+  for (const check of failedChecks) {
+    const forced = check.blocking ? " (dipaksa rilis dengan `--force`)" : " (diketahui, masih terbuka)";
+    lines.push(`- \`${check.name}\`${forced} — ${check.detail}`);
+  }
+  lines.push("");
+  lines.push("Lihat `docs/roadmap-mvp.md` untuk rencana perbaikannya.");
   lines.push("");
 }
 
