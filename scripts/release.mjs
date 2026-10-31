@@ -19,7 +19,7 @@
  *    lebih berbahaya daripada mengumumkannya.
  */
 import { execFileSync } from "node:child_process";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -235,6 +235,16 @@ function hasNpmScript(name) {
 
 console.log("\nverifikasi:");
 const checks = [];
+
+// Tanpa node_modules, semua cek akan gagal dengan pesan yang menyesatkan
+// ("tsc tidak ditemukan") padahal masalahnya cuma belum `npm ci`.
+if (!existsSync("node_modules")) {
+  console.error(
+    "node_modules belum ada. Jalankan `npm ci` dulu — skrip ini butuh dependensi untuk typecheck dan build.",
+  );
+  process.exit(1);
+}
+
 checks.push(verify("typecheck", "npx", ["tsc", "--noEmit"], { blocking: true }));
 
 // `check:all` baru ada di branch roadmap. Selama belum di-merge, jangan gagalkan rilis —
