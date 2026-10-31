@@ -320,30 +320,48 @@ Sampai keempatnya dijawab, Fase 3 dan 4 tetap bisa dikerjakan untuk bagian yang 
 
 | Ritme | Isi | Keluaran |
 | --- | --- | --- |
-| Harian (otomatis) | `bash scripts/health-check.sh` + triase temuan baru | laporan singkat + issue baru bila ada temuan |
-| Mingguan (manual) | audit mendalam per area + review gate | status gate G1–G5, PR yang menunggu keputusan |
-| Per rilis | jalankan seluruh gate, rekonsiliasi satu slip manual | catatan rilis |
+| **Harian 00:00 WIB** | **rilis otomatis** — simpulkan PR yang di-merge sejak rilis terakhir, verifikasi, buat tag + GitHub Release | versi `vYYYY.MM.N` + catatan rilis |
+| Harian 08:00 WIB | `bash scripts/health-check.sh` + triase temuan baru | laporan singkat + issue baru bila ada temuan |
+| Mingguan Senin 09:00 WIB | audit mendalam per area + review gate | status gate G1–G5, PR yang menunggu keputusan |
+| Per rilis manual | rekonsiliasi satu slip dengan hitungan manual | catatan rekonsiliasi |
 
-Detail jadwal otomatis ada di `docs/automation.md` (heartbeat 30 menit, audit harian 00:00 WIB) dan pada jadwal pengecekan repo yang dipasang untuk sesi CTO ini: **harian 08:00 WIB** dan **audit mendalam Senin 09:00 WIB**.
+Detail jadwal lama ada di `docs/automation.md` (heartbeat 30 menit, audit harian 00:00 WIB).
 
 ### 9.1 Alat yang sudah dipasang
 
 | Alat | Fungsi | Cara pakai |
 | --- | --- | --- |
+| `scripts/release.mjs` | rilis otomatis CalVer: kumpulkan PR yang di-merge, kelompokkan per jenis, verifikasi, tag + release | `npm run release:dry` / `npm run release` |
 | `scripts/health-check.sh` | pemeriksaan statis repo & rilis: build, typecheck, lint, script cek, sinkronisasi git, status CI, kesehatan produksi, issue/PR, integritas journal migrasi. Tidak menyentuh database. | `bash scripts/health-check.sh [branch]` |
 | `scripts/check-period.ts` | sweep `startDay` 1–31 × 1461 tanggal 2025–2028: setiap tanggal masuk tepat satu periode, periode bersambung & tidak tumpang tindih, `recentPeriods`/`shiftPeriod`/`transitionPeriod` konsisten. | `npm run check:period` |
 | `npm run check:all` | menjalankan `check:cuti`, `check:saldo`, `check:csv`, `check:period` sekaligus. | `npm run check:all` |
 
 **Status alat saat ini (31 Okt 2026):** 10 lulus, 4 gagal, 7 catatan. Yang gagal persis adalah empat hal yang menghalangi Fase 0 — `tsc` di `main`, `check:period` (bug #46), CI belum pernah hijau, dan journal migrasi desync. Jadi alat ini sudah siap dipakai; yang belum hijau adalah repo-nya.
 
-### 9.2 Gate CI yang diusulkan
+### 9.2 Kebijakan rilis otomatis
 
-Dua file workflow sudah disiapkan di branch `docs/roadmap-mvp`:
+Versi memakai **CalVer `vYYYY.MM.N`** — tahun, bulan, nomor urut rilis dalam bulan itu. Contoh: `v2026.11.1`, `v2026.11.2`.
+
+Aturan yang dipegang `scripts/release.mjs`:
+
+| Situasi | Perilaku | Alasan |
+| --- | --- | --- |
+| Tidak ada PR baru sejak rilis terakhir | **tidak ada rilis** | rilis kosong membanjiri halaman Releases tanpa informasi |
+| `typecheck` atau `build` gagal | **rilis dibatalkan** | tag tidak boleh menunjuk kode yang tidak bisa di-build |
+| `check:all` gagal | rilis tetap jalan, kegagalan **dicatat** di catatan rilis | repo masih punya bug terbuka; menyembunyikannya lebih berbahaya |
+| HEAD lokal ≠ commit di GitHub | **berhenti** | yang diverifikasi harus benar-benar yang dirilis |
+| `check:all` belum ada di branch | dilewati dengan tanda `dilewati` | jangan gagalkan rilis karena tooling yang belum di-merge |
+
+**Rilis bukan pengganti gate.** Rilis menandai apa yang sudah di-merge owner; ia tidak memvalidasi kebenaran perhitungan. Gate G2 tetap harus hijau sebelum MVP diumumkan.
+
+### 9.3 Gate CI yang diusulkan
+
+Dua file workflow sudah disiapkan:
 
 - `.github/workflows/ci.yml` (baru) — typecheck, lint, `check:all`, build, dan pemeriksaan integritas journal migrasi, dijalankan pada setiap PR dan push ke `main`.
 - `.github/workflows/deployment.yml` (diubah) — gate yang sama ditambahkan sebelum webhook Easypanel, supaya build yang gagal tidak pernah memicu rilis.
 
-> **Catatan penting:** token GitHub yang dipakai sesi ini tidak punya scope `workflow`, jadi kedua file itu **belum bisa di-push dari sini**. Isinya tersedia di branch lokal `docs/roadmap-mvp` dan perlu di-commit manual oleh owner (atau token perlu scope `workflow`). Isi lengkapnya ada di commit lokal dan bisa dilihat dengan `git show`.
+> **Catatan penting:** token GitHub yang dipakai sesi ini tidak punya scope `workflow`, jadi kedua file itu **belum bisa di-push dari sini**. Isinya perlu di-commit manual oleh owner (atau token perlu scope `workflow`).
 
 ---
 
