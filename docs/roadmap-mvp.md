@@ -320,11 +320,30 @@ Sampai keempatnya dijawab, Fase 3 dan 4 tetap bisa dikerjakan untuk bagian yang 
 
 | Ritme | Isi | Keluaran |
 | --- | --- | --- |
-| Harian (otomatis) | cek kesehatan repo: build, typecheck, lint, script cek, status CI, kesehatan produksi, triase issue baru | laporan singkat + issue baru bila ada temuan |
-| Mingguan (manual) | review gate fase, perbarui dokumen ini, putuskan urutan berikutnya | status gate G1–G5 |
-| Per rilis | jalankan seluruh gate, rekonsiliasi satu slip secara manual | catatan rilis |
+| Harian (otomatis) | `bash scripts/health-check.sh` + triase temuan baru | laporan singkat + issue baru bila ada temuan |
+| Mingguan (manual) | audit mendalam per area + review gate | status gate G1–G5, PR yang menunggu keputusan |
+| Per rilis | jalankan seluruh gate, rekonsiliasi satu slip manual | catatan rilis |
 
-Detail jadwal otomatis ada di `docs/automation.md` (heartbeat 30 menit, audit harian 00:00 WIB) dan pada jadwal pengecekan repo yang dipasang untuk sesi CTO ini.
+Detail jadwal otomatis ada di `docs/automation.md` (heartbeat 30 menit, audit harian 00:00 WIB) dan pada jadwal pengecekan repo yang dipasang untuk sesi CTO ini: **harian 08:00 WIB** dan **audit mendalam Senin 09:00 WIB**.
+
+### 9.1 Alat yang sudah dipasang
+
+| Alat | Fungsi | Cara pakai |
+| --- | --- | --- |
+| `scripts/health-check.sh` | pemeriksaan statis repo & rilis: build, typecheck, lint, script cek, sinkronisasi git, status CI, kesehatan produksi, issue/PR, integritas journal migrasi. Tidak menyentuh database. | `bash scripts/health-check.sh [branch]` |
+| `scripts/check-period.ts` | sweep `startDay` 1–31 × 1461 tanggal 2025–2028: setiap tanggal masuk tepat satu periode, periode bersambung & tidak tumpang tindih, `recentPeriods`/`shiftPeriod`/`transitionPeriod` konsisten. | `npm run check:period` |
+| `npm run check:all` | menjalankan `check:cuti`, `check:saldo`, `check:csv`, `check:period` sekaligus. | `npm run check:all` |
+
+**Status alat saat ini (31 Okt 2026):** 10 lulus, 4 gagal, 7 catatan. Yang gagal persis adalah empat hal yang menghalangi Fase 0 — `tsc` di `main`, `check:period` (bug #46), CI belum pernah hijau, dan journal migrasi desync. Jadi alat ini sudah siap dipakai; yang belum hijau adalah repo-nya.
+
+### 9.2 Gate CI yang diusulkan
+
+Dua file workflow sudah disiapkan di branch `docs/roadmap-mvp`:
+
+- `.github/workflows/ci.yml` (baru) — typecheck, lint, `check:all`, build, dan pemeriksaan integritas journal migrasi, dijalankan pada setiap PR dan push ke `main`.
+- `.github/workflows/deployment.yml` (diubah) — gate yang sama ditambahkan sebelum webhook Easypanel, supaya build yang gagal tidak pernah memicu rilis.
+
+> **Catatan penting:** token GitHub yang dipakai sesi ini tidak punya scope `workflow`, jadi kedua file itu **belum bisa di-push dari sini**. Isinya tersedia di branch lokal `docs/roadmap-mvp` dan perlu di-commit manual oleh owner (atau token perlu scope `workflow`). Isi lengkapnya ada di commit lokal dan bisa dilihat dengan `git show`.
 
 ---
 
