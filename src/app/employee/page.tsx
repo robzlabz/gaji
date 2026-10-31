@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { timeEntries } from "@/db/schema";
+import { timeEntries, type PayType } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
 import { estimatePay } from "@/lib/estimate";
 import { ClockCard } from "./clock-card";
@@ -107,7 +107,9 @@ export default async function EmployeeHome({
         </CardHeader>
         <CardContent>
           <ClockCard
-            payType={employee.payType}
+            // Kolom `pay_type` disimpan sebagai text; nilainya sudah dibatasi di sisi tulis
+            // (lihat validasi tipe gaji di server action). Cast di sini supaya tipe UI tetap sempit.
+            payType={employee.payType as PayType}
             transportRate={toNumber(employee.transportRate)}
             openEntry={
               openEntry
