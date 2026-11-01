@@ -336,7 +336,9 @@ Detail jadwal lama ada di `docs/automation.md` (heartbeat 30 menit, audit harian
 | `scripts/check-period.ts` | sweep `startDay` 1–31 × 1461 tanggal 2025–2028: setiap tanggal masuk tepat satu periode, periode bersambung & tidak tumpang tindih, `recentPeriods`/`shiftPeriod`/`transitionPeriod` konsisten. | `npm run check:period` |
 | `npm run check:all` | menjalankan `check:cuti`, `check:saldo`, `check:csv`, `check:period` sekaligus. | `npm run check:all` |
 
-**Status alat saat ini (31 Okt 2026):** 10 lulus, 4 gagal, 7 catatan. Yang gagal persis adalah empat hal yang menghalangi Fase 0 — `tsc` di `main`, `check:period` (bug #46), CI belum pernah hijau, dan journal migrasi desync. Jadi alat ini sudah siap dipakai; yang belum hijau adalah repo-nya.
+**Status alat saat ini (1 Nov 2026):** 11 lulus, 4 gagal, 6 catatan. Yang gagal persis adalah empat hal yang menghalangi Fase 0 — `tsc` di `main`, `check:period` (bug #46), CI belum pernah hijau, dan journal migrasi desync. Jadi alat ini sudah siap dipakai; yang belum hijau adalah repo-nya.
+
+> **Koreksi 1 Nov 2026.** Laporan 31 Okt menulis 10 lulus / 5 gagal. Satu dari lima kegagalan itu **palsu**: `check:csv` dilaporkan merah padahal isinya lulus semua. Penyebabnya script `check:csv` belum terdaftar di `package.json` `main` (pendaftarannya ada di PR #72 ini), jadi `npm run check:csv` gagal dengan "Missing script" — bukan karena ada bug. Health check sekarang membedakan **"script belum terdaftar"** dari **"cek gagal"**, dan menjalankan file ceknya langsung bila file itu ada. Angka kemarin membuat repo terlihat lebih buruk daripada kenyataannya; angka yang benar adalah 4 gagal, dan keempatnya memang nyata.
 
 ### 9.2 Kebijakan rilis otomatis
 

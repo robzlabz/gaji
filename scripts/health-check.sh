@@ -26,10 +26,24 @@ echo "[1] build & typecheck"
 if [ -d node_modules ]; then
   if npx tsc --noEmit >/tmp/hc-tsc.log 2>&1; then ok "tsc --noEmit"; else bad "tsc --noEmit — $(head -1 /tmp/hc-tsc.log)"; fi
   if npx eslint >/tmp/hc-lint.log 2>&1; then ok "eslint (0 error)"; else bad "eslint — $(grep -c ' error ' /tmp/hc-lint.log) error"; fi
-  if npm run check:cuti >/tmp/hc-cuti.log 2>&1; then ok "check:cuti"; else bad "check:cuti gagal"; fi
-  if npm run check:saldo >/tmp/hc-saldo.log 2>&1; then ok "check:saldo"; else bad "check:saldo gagal"; fi
-  if npm run check:csv >/tmp/hc-csv.log 2>&1; then ok "check:csv"; else bad "check:csv gagal"; fi
-  if npm run check:period >/tmp/hc-period.log 2>&1; then ok "check:period"; else bad "check:period gagal"; fi
+  # Script cek bisa belum terdaftar di package.json (masih di branch lain).
+  # Bedakan "tidak ada script" dari "cek gagal" supaya laporan tidak memberi alarm palsu.
+  has_script() { node -e "process.exit(require('./package.json').scripts['$1']?0:1)" 2>/dev/null; }
+  run_check() {
+    local name="$1" fallback="$2" log="/tmp/hc-$1.log"
+    if has_script "$name"; then
+      if npm run "$name" >"$log" 2>&1; then ok "$name"; else bad "$name gagal — $(grep -m1 -E '(✗|gagal|Error)' "$log" | head -c 110)"; fi
+    elif [ -f "$fallback" ]; then
+      # Script npm belum ada, tetapi file ceknya ada: jalankan langsung.
+      if npx tsx "$fallback" >"$log" 2>&1; then ok "$name (langsung, script npm belum terdaftar)"; else bad "$name gagal — $(grep -m1 -E '(✗|gagal|Error)' "$log" | head -c 110)"; fi
+    else
+      note "$name — dilewati (script npm dan file ceknya belum ada di branch ini)"
+    fi
+  }
+  run_check check:cuti   scripts/check-cuti-payroll.ts
+  run_check check:saldo  scripts/check-saldo.ts
+  run_check check:csv    scripts/check-csv.ts
+  run_check check:period scripts/check-period.ts
 else
   note "node_modules belum ada — jalankan npm ci dulu"
 fi
