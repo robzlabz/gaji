@@ -40,6 +40,9 @@ next-*.log
 .env*
 !.env.example
 
+# hasil backup database (berisi seluruh data produksi — jangan pernah di-commit)
+/.backup
+
 # vercel
 .vercel
 
