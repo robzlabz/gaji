@@ -1,4 +1,5 @@
 import { requireAdmin } from "@/lib/session";
+import { toNumber } from "@/lib/format";
 import { updateOrgSettingsAction } from "../actions";
 import { Flash } from "@/components/flash";
 import { FormField, SelectInput } from "@/components/form-field";
@@ -56,7 +57,10 @@ export default async function SettingsPage({
                 defaultValue={org.contractAlertDays}
               />
             </FormField>
-            <FormField label="Hari kerja efektif per bulan" hint="Acuan prorata gaji bulanan.">
+            <FormField
+              label="Hari kerja efektif per bulan"
+              hint="Acuan prorata gaji bulanan, sekaligus pembagi gaji bulanan menjadi upah sejam untuk lembur."
+            >
               <Input
                 name="workingDaysPerMonth"
                 type="number"
@@ -65,14 +69,62 @@ export default async function SettingsPage({
                 defaultValue={org.workingDaysPerMonth}
               />
             </FormField>
-            <FormField label="Pengali lembur" hint="Lembur tetap butuh catatan manual dari admin.">
+            <div className="border-t pt-3">
+              <p className="text-sm font-medium">Lembur otomatis (PP 35/2021)</p>
+              <p className="text-xs text-muted-foreground">
+                Lembur dihitung dari selisih jam clock-in/clock-out setelah dikurangi istirahat:
+                jam pertama 1,5× upah sejam, jam berikutnya 2×. Upah sejam diturunkan dari tipe
+                gaji — per jam memakai tarifnya, per hari tarif harian ÷ jam normal per hari, per
+                bulan gaji bulanan ÷ (hari kerja efektif × jam normal per hari). Angka lembur
+                manual pada absensi tetap menang atas hitungan otomatis.
+              </p>
+            </div>
+            <FormField
+              label="Jam kerja normal per hari"
+              hint="Contoh: 7 atau 7,5. Kelebihan menit di atas angka ini yang dihitung lembur."
+            >
               <Input
-                name="overtimeMultiplier"
+                name="normalHoursPerDay"
+                type="number"
+                step="0.5"
+                min={1}
+                max={24}
+                defaultValue={toNumber(org.normalHoursPerDay)}
+              />
+            </FormField>
+            <FormField
+              label="Hari kerja per minggu"
+              hint="6 = Senin–Sabtu, 5 = Senin–Jumat, 7 = setiap hari. Sisa hari dianggap hari libur (lembur hari libur belum dihitung otomatis)."
+            >
+              <Input
+                name="workingDaysPerWeek"
+                type="number"
+                min={1}
+                max={7}
+                defaultValue={org.workingDaysPerWeek}
+              />
+            </FormField>
+            <FormField label="Pengali lembur jam pertama" hint="Bawaan 1,5× sesuai PP 35/2021.">
+              <Input
+                name="overtimeFirstMultiplier"
                 type="number"
                 step="0.1"
                 min={1}
-                max={5}
-                defaultValue={Number(org.overtimeMultiplier)}
+                max={10}
+                defaultValue={toNumber(org.overtimeFirstMultiplier)}
+              />
+            </FormField>
+            <FormField
+              label="Pengali lembur jam berikutnya"
+              hint="Bawaan 2× sesuai PP 35/2021."
+            >
+              <Input
+                name="overtimeNextMultiplier"
+                type="number"
+                step="0.1"
+                min={1}
+                max={10}
+                defaultValue={toNumber(org.overtimeNextMultiplier)}
               />
             </FormField>
             <FormField

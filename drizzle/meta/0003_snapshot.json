@@ -2387,6 +2387,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2401,7 +2407,7 @@
             }
           ],
           "isUnique": true,
-          "where": "clock_out_at is null",
+          "where": "clock_out_at is null and deleted_at is null",
           "concurrently": false,
           "method": "btree",
           "with": {}

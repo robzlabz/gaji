@@ -6,12 +6,14 @@ import {
   cashAdvanceTxns,
   cashAdvances,
   employees,
+  organizations,
   payRateHistory,
   timeEntries,
   wageFloats,
   wageFloatTxns,
 } from "@/db/schema";
 import { toNumber } from "@/lib/format";
+import { overtimeForEntry, overtimeSettingsFromOrg } from "@/lib/overtime";
 import { requireOrgEmployee } from "@/lib/org-employee";
 import { workedMinutes } from "@/lib/payroll";
 import {
@@ -159,11 +161,42 @@ export async function accrueForEntry(
     overtimeMinutes: entry.overtimeMinutes,
   });
 
+  // Saldo selalu dihitung dengan tarif per jam (karyawan saldo = upah per jam/kehadiran).
+  // Lembur tetap memakai aturan PP 35/2021 dan pengaturan organisasi yang sama dengan
+  // payroll, supaya nilai yang memotong saldo = nilai di slip (tidak dihitung dua kali dan
+  // tidak pula kurang bayar).
+  const [orgRow] = await conn
+    .select({
+      normalHoursPerDay: organizations.normalHoursPerDay,
+      workingDaysPerWeek: organizations.workingDaysPerWeek,
+      workingDaysPerMonth: organizations.workingDaysPerMonth,
+      overtimeFirstMultiplier: organizations.overtimeFirstMultiplier,
+      overtimeNextMultiplier: organizations.overtimeNextMultiplier,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, input.orgId))
+    .limit(1);
+
+  const overtimeSettings = overtimeSettingsFromOrg(orgRow);
+  const overtime = overtimeForEntry({
+    payType: "hourly",
+    payRate: rate,
+    workDate: entry.workDate,
+    workedMinutes: minutes,
+    manualMinutes: entry.overtimeMinutes,
+    hasClockOut: Boolean(entry.clockOutAt),
+    settings: overtimeSettings,
+  });
+
   const breakdown = accrualForEntry({
     minutes,
-    overtimeMinutes: entry.overtimeMinutes,
+    overtime: overtime
+      ? { firstMinutes: overtime.firstMinutes, nextMinutes: overtime.nextMinutes }
+      : null,
     rate,
     transportAmount: toNumber(entry.transportAmount),
+    firstHourMultiplier: overtimeSettings.firstHourMultiplier,
+    nextHourMultiplier: overtimeSettings.nextHourMultiplier,
   });
 
   const [existingTxn] = await conn

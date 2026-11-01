@@ -463,7 +463,7 @@ export function registerPeopleTools(server: McpServer) {
     {
       title: "Pengaturan org & akses",
       description:
-        "Pengaturan tenant yang memengaruhi hitungan payroll (zona waktu, awal periode gaji, hari kerja/bulan untuk prorata, pengali lembur, ambang alert kontrak, geofence absensi) plus siapa yang punya akses: jumlah member per role dan karyawan aktif yang belum punya akun login.",
+        "Pengaturan tenant yang memengaruhi hitungan payroll (zona waktu, awal periode gaji, hari kerja/bulan untuk prorata, pengaturan lembur otomatis (jam kerja normal/hari, hari kerja/minggu, pengali jam pertama & berikutnya), ambang alert kontrak, geofence absensi) plus siapa yang punya akses: jumlah member per role dan karyawan aktif yang belum punya akun login.",
       inputSchema: {
         ...ORG_ARG,
         includeMembers: z
@@ -485,7 +485,10 @@ export function registerPeopleTools(server: McpServer) {
         currency: string;
         pay_period_start_day: number;
         working_days_per_month: number;
-        overtime_multiplier: string | number;
+        normal_hours_per_day: string | number;
+        working_days_per_week: number;
+        overtime_first_multiplier: string | number;
+        overtime_next_multiplier: string | number;
         contract_alert_days: number;
         geofence_lat: number | null;
         geofence_lng: number | null;
@@ -493,7 +496,8 @@ export function registerPeopleTools(server: McpServer) {
         created_at: string;
       }>(
         `select id, name, slug, timezone, currency, pay_period_start_day, working_days_per_month,
-                overtime_multiplier, contract_alert_days, geofence_lat, geofence_lng, geofence_radius_m,
+                normal_hours_per_day, working_days_per_week, overtime_first_multiplier, overtime_next_multiplier,
+                contract_alert_days, geofence_lat, geofence_lng, geofence_radius_m,
                 created_at
            from organizations where id = $1`,
         [target.id],
@@ -553,7 +557,16 @@ export function registerPeopleTools(server: McpServer) {
         payrollSettings: {
           payPeriodStartDay: row?.pay_period_start_day ?? target.payPeriodStartDay,
           workingDaysPerMonth: row?.working_days_per_month ?? target.workingDaysPerMonth,
-          overtimeMultiplier: num(row?.overtime_multiplier ?? target.overtimeMultiplier),
+          overtime: {
+            normalHoursPerDay: num(row?.normal_hours_per_day ?? target.overtime.normalHoursPerDay),
+            workingDaysPerWeek: num(row?.working_days_per_week ?? target.overtime.workingDaysPerWeek),
+            firstHourMultiplier: num(
+              row?.overtime_first_multiplier ?? target.overtime.firstHourMultiplier,
+            ),
+            nextHourMultiplier: num(
+              row?.overtime_next_multiplier ?? target.overtime.nextHourMultiplier,
+            ),
+          },
           contractAlertDays: row?.contract_alert_days ?? target.contractAlertDays,
           currentPeriod: {
             label: period.label,

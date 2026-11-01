@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { requireEmployee } from "@/lib/session";
 import { estimatePay } from "@/lib/estimate";
+import { overtimeSettingsFromOrg } from "@/lib/overtime";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { PAY_TYPE_LABEL, localDateString, rupiah, toNumber } from "@/lib/format";
+import { PAY_TYPE_LABEL, localDateString, rupiah } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
 import type { PayslipComputation } from "@/lib/payroll";
 import { isDeductionLine } from "@/lib/payroll";
@@ -67,7 +68,7 @@ export default async function EmployeeEstimatePage() {
       isActive: employee.isActive,
     },
     period,
-    overtimeMultiplier: toNumber(org.overtimeMultiplier),
+    overtime: overtimeSettingsFromOrg(org),
   });
 
   const { approved, potential, counts } = estimate;

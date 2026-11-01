@@ -23,8 +23,18 @@ import {
 } from "./schema";
 import { auth } from "@/lib/auth";
 import { leaveWorkDays } from "@/lib/leave";
+import { overtimeForEntry, overtimeSettingsFromOrg } from "@/lib/overtime";
 import { accrualForEntry } from "@/lib/saldo";
 import { workedMinutes } from "@/lib/payroll";
+
+/** Pengaturan lembur tenant demo (sama dengan baris `organizations` di bawah). */
+const seedOvertimeSettings = overtimeSettingsFromOrg({
+  normalHoursPerDay: "7.00",
+  workingDaysPerWeek: 6,
+  workingDaysPerMonth: 24,
+  overtimeFirstMultiplier: "1.50",
+  overtimeNextMultiplier: "2.00",
+});
 
 function iso(offsetDays: number): string {
   const d = new Date();
@@ -93,7 +103,10 @@ async function main() {
       payPeriodStartDay: 26,
       contractAlertDays: 45,
       workingDaysPerMonth: 24,
-      overtimeMultiplier: "1.50",
+      normalHoursPerDay: "7.00",
+      workingDaysPerWeek: 6,
+      overtimeFirstMultiplier: "1.50",
+      overtimeNextMultiplier: "2.00",
       geofenceLat: -6.2088,
       geofenceLng: 106.8456,
       geofenceRadiusM: 200,
@@ -307,12 +320,25 @@ async function main() {
       breakMinutes: entry.breakMinutes,
       overtimeMinutes: entry.overtimeMinutes,
     });
+    // Lembur dipecah lewat modul yang sama dengan payroll (PP 35/2021).
+    const overtime = overtimeForEntry({
+      payType: "hourly",
+      payRate: 30000,
+      workDate: entry.workDate,
+      workedMinutes: minutes,
+      manualMinutes: entry.overtimeMinutes,
+      hasClockOut: Boolean(entry.clockOutAt),
+      settings: seedOvertimeSettings,
+    });
     const breakdown = accrualForEntry({
       minutes,
-      overtimeMinutes: entry.overtimeMinutes,
+      overtime: overtime
+        ? { firstMinutes: overtime.firstMinutes, nextMinutes: overtime.nextMinutes }
+        : null,
       rate: 30000,
       transportAmount: 10000,
-      overtimeMultiplier: 1.5,
+      firstHourMultiplier: seedOvertimeSettings.firstHourMultiplier,
+      nextHourMultiplier: seedOvertimeSettings.nextHourMultiplier,
     });
     if (breakdown.total <= 0) continue;
 

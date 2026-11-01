@@ -107,7 +107,7 @@ export function registerOverviewTool(server: McpServer) {
           name: target.name,
           timezone: target.timezone,
           payPeriodStartDay: target.payPeriodStartDay,
-          overtimeMultiplier: target.overtimeMultiplier,
+          overtime: target.overtime,
         },
         today,
         period: {

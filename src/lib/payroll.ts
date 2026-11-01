@@ -1,6 +1,15 @@
 import { countWorkDays, workDatesBetween, type Period } from "./period";
 import { toNumber, rupiah } from "./format";
-import { accrualForEntry } from "./saldo";
+import {
+  isWorkingDay,
+  normalMinutesPerDay,
+  normalizeOvertimeSettings,
+  overtimeForEntry,
+  overtimeHourlyRate,
+  overtimeLineLabels,
+  type OvertimeSettings,
+  type OvertimeWage,
+} from "./overtime";
 
 export type PayLineKind = "regular" | "overtime" | "task" | "transport" | "kasbon" | "saldo" | "other";
 
@@ -98,7 +107,11 @@ export type ComputeInput = {
   advances: AdvanceInput[];
   /** Cuti karyawan (hanya dipakai untuk pay_type monthly). */
   leaves?: LeaveInput[];
-  overtimeMultiplier?: number;
+  /**
+   * Pengaturan lembur organisasi (jam kerja normal/hari, hari kerja/minggu, hari kerja
+   * efektif/bulan, pengali jam pertama & berikutnya). Kosong = bawaan PP 35/2021.
+   */
+  overtime?: OvertimeSettings;
   /**
    * Bagian bruto periode ini yang sudah dibayar lewat saldo prabayar.
    * Muncul sebagai baris potongan "Sudah dibayar via saldo", sehingga
@@ -109,6 +122,71 @@ export type ComputeInput = {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Akumulasi lembur satu slip: dua tangga tarif PP 35/2021 + kejadian yang perlu peringatan. */
+type OvertimeTotals = {
+  firstMinutes: number;
+  nextMinutes: number;
+  firstWage: number;
+  nextWage: number;
+  /** Absensi yang lemburnya memakai angka manual (menang atas hitungan otomatis). */
+  manualEntries: number;
+  /** Tanggal di hari libur yang kelebihan jamnya tidak dihitung otomatis. */
+  holidayNotCounted: string[];
+  /** Tanggal dengan lembur manual di hari libur (dibayar dengan tangga hari kerja). */
+  holidayManual: string[];
+  /** Ada menit lebih dari jam normal pada karyawan per tugas (tidak punya tarif sejam). */
+  noHourlyBase: boolean;
+};
+
+function emptyOvertimeTotals(): OvertimeTotals {
+  return {
+    firstMinutes: 0,
+    nextMinutes: 0,
+    firstWage: 0,
+    nextWage: 0,
+    manualEntries: 0,
+    holidayNotCounted: [],
+    holidayManual: [],
+    noHourlyBase: false,
+  };
+}
+
+function accumulateOvertime(totals: OvertimeTotals, overtime: OvertimeWage, workDate: string): void {
+  totals.firstMinutes += overtime.firstMinutes;
+  totals.nextMinutes += overtime.nextMinutes;
+  totals.firstWage += overtime.firstWage;
+  totals.nextWage += overtime.nextWage;
+  if (overtime.source === "manual") totals.manualEntries += 1;
+  if (!overtime.workingDay) totals.holidayManual.push(workDate);
+}
+
+/**
+ * Dua baris lembur terpisah (jam pertama & jam berikutnya), masing-masing dengan tarifnya
+ * sendiri. `unitRate` = upah sejam efektif setelah pengali, jadi qty × tarif ≈ jumlah.
+ */
+function buildOvertimeLines(totals: OvertimeTotals, settings: OvertimeSettings): PayLine[] {
+  const labels = overtimeLineLabels(settings);
+  const out: PayLine[] = [];
+
+  const push = (minutes: number, wage: number, label: string, multiplier: number) => {
+    if (minutes <= 0 || wage <= 0) return;
+    const hours = minutes / 60;
+    out.push({
+      kind: "overtime",
+      label,
+      qty: round2(hours),
+      unit: "jam",
+      unitRate: Math.round(wage / hours),
+      amount: wage,
+      meta: { minutes, multiplier },
+    });
+  };
+
+  push(totals.firstMinutes, totals.firstWage, labels.first, settings.firstHourMultiplier);
+  push(totals.nextMinutes, totals.nextWage, labels.next, settings.nextHourMultiplier);
+  return out;
 }
 
 /** Menit kerja efektif (sudah dikurangi istirahat). */
@@ -122,7 +200,9 @@ export function workedMinutes(entry: TimeEntryInput): number {
 
 export function computePayslip(input: ComputeInput): PayslipComputation {
   const rate = toNumber(input.payRate);
-  const multiplier = input.overtimeMultiplier ?? 1;
+  const overtimeSettings = normalizeOvertimeSettings(input.overtime);
+  const normalDayMinutes = normalMinutesPerDay(overtimeSettings);
+  const overtimeTotals = emptyOvertimeTotals();
   const lines: PayLine[] = [];
   const warnings: string[] = [];
 
@@ -140,31 +220,74 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     warnings.push(`${open.length} absensi belum clock-out dan tidak dihitung.`);
   }
 
+  /**
+   * Lembur satu absensi untuk semua tipe upah, sekaligus mencatat kejadian yang perlu
+   * diberi peringatan (hari libur, tipe upah tanpa tarif sejam).
+   *
+   * Sumber menit lembur: `time_entries.overtime_minutes` bila diisi admin (menang),
+   * selain itu selisih menit efektif terhadap jam kerja normal per hari.
+   */
+  function entryOvertime(entry: TimeEntryInput, entryPayRate: number): OvertimeWage | null {
+    const minutes = workedMinutes(entry);
+    const overtime = overtimeForEntry({
+      payType: input.payType,
+      payRate: entryPayRate,
+      workDate: entry.workDate,
+      workedMinutes: minutes,
+      manualMinutes: entry.overtimeMinutes,
+      hasClockOut: Boolean(entry.clockOutAt),
+      settings: overtimeSettings,
+    });
+
+    if (overtime) {
+      accumulateOvertime(overtimeTotals, overtime, entry.workDate);
+      return overtime;
+    }
+
+    if (
+      entry.clockOutAt &&
+      toNumber(entry.overtimeMinutes) <= 0 &&
+      minutes > normalDayMinutes &&
+      !isWorkingDay(entry.workDate, overtimeSettings.workingDaysPerWeek)
+    ) {
+      // Kelebihan jam di hari libur sengaja tidak dihitung: tarif lembur hari libur
+      // (2×/3×/4× PP 35/2021) belum dimodelkan, jadi admin yang memutuskan lewat input manual.
+      overtimeTotals.holidayNotCounted.push(entry.workDate);
+    }
+
+    if (
+      entry.clockOutAt &&
+      minutes > normalDayMinutes &&
+      overtimeHourlyRate({
+        payType: input.payType,
+        payRate: entryPayRate,
+        settings: overtimeSettings,
+      }) === null
+    ) {
+      overtimeTotals.noHourlyBase = true;
+    }
+
+    return null;
+  }
+
   if (input.payType === "hourly") {
     let regularMinutes = 0;
-    let overtimeMinutes = 0;
     let regularWage = 0;
-    let overtimeWage = 0;
     const ratesUsed = new Set<number>();
 
     for (const entry of timeEntries) {
       const minutes = workedMinutes(entry);
-      if (minutes <= 0) continue;
       // Tarif per kedatangan ("tarif saat kejadian") supaya absensi bulan lalu tidak
       // ikut naik ketika tarif karyawan diubah bulan ini.
       const entryRate = toNumber(entry.rateAt ?? rate);
+      const entryOt = entryOvertime(entry, entryRate);
+      // Lembur tidak dibayar dua kali: menit reguler = menit efektif − menit lembur.
+      const regular = Math.max(0, minutes - (entryOt?.totalMinutes ?? 0));
+      if (regular <= 0 && !entryOt) continue;
+
       ratesUsed.add(entryRate);
-      const acc = accrualForEntry({
-        minutes,
-        overtimeMinutes: entry.overtimeMinutes,
-        rate: entryRate,
-        transportAmount: 0,
-        overtimeMultiplier: multiplier,
-      });
-      regularMinutes += acc.regularMinutes;
-      overtimeMinutes += acc.overtimeMinutes;
-      regularWage += acc.regularWage;
-      overtimeWage += acc.overtimeWage;
+      regularMinutes += regular;
+      regularWage += Math.round((regular / 60) * entryRate);
     }
 
     if (regularMinutes > 0) {
@@ -176,17 +299,6 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
         unitRate: rate,
         amount: regularWage,
         meta: ratesUsed.size > 1 ? { mixedRates: [...ratesUsed] } : undefined,
-      });
-    }
-
-    if (overtimeMinutes > 0) {
-      lines.push({
-        kind: "overtime",
-        label: "Lembur (catatan manual)",
-        qty: round2(overtimeMinutes / 60),
-        unit: "jam",
-        unitRate: Math.round(rate * multiplier),
-        amount: overtimeWage,
       });
     }
 
@@ -208,6 +320,12 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
         unitRate: rate,
         amount: Math.round(days * rate),
       });
+    }
+
+    // Lembur karyawan harian (#55): tarif sejam = tarif harian ÷ jam kerja normal per hari,
+    // jadi hari kerja yang lebih panjang dari normal tetap dibayar.
+    for (const entry of timeEntries) {
+      entryOvertime(entry, toNumber(entry.rateAt ?? rate));
     }
   }
 
@@ -298,6 +416,49 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
         `${unpaidLeaveDays} hari cuti tanpa upah tidak dihitung sebagai hari kerja.`,
       );
     }
+
+    // Lembur karyawan bulanan: tarif sejam = gaji bulanan ÷ (hari kerja efektif × jam normal
+    // per hari) — dua-duanya dari pengaturan organisasi, bukan angka hardcode.
+    for (const entry of timeEntries) {
+      entryOvertime(entry, toNumber(entry.rateAt ?? rate));
+    }
+  }
+
+  // Karyawan per tugas tidak punya dasar tarif sejam: lemburnya tidak dibayar, tapi
+  // kelebihan jamnya tetap dicatat supaya slip memberi peringatan yang jelas.
+  if (input.payType !== "hourly" && input.payType !== "daily" && input.payType !== "monthly") {
+    for (const entry of timeEntries) {
+      entryOvertime(entry, toNumber(entry.rateAt ?? rate));
+    }
+  }
+
+  // Lembur tampil sebagai dua baris dengan tarif masing-masing (jam pertama 1,5×,
+  // jam berikutnya 2×), bukan satu baris gabungan.
+  lines.push(...buildOvertimeLines(overtimeTotals, overtimeSettings));
+
+  if (overtimeTotals.holidayNotCounted.length > 0) {
+    const dates = overtimeTotals.holidayNotCounted.slice(0, 3).join(", ");
+    warnings.push(
+      `${overtimeTotals.holidayNotCounted.length} absensi di hari libur (${dates}${overtimeTotals.holidayNotCounted.length > 3 ? ", …" : ""}) melebihi jam normal tetapi tidak dihitung otomatis — lembur hari libur belum didukung, isi lembur manual bila memang lembur.`,
+    );
+  }
+
+  if (overtimeTotals.holidayManual.length > 0) {
+    warnings.push(
+      `${overtimeTotals.holidayManual.length} lembur manual jatuh di hari libur dan dibayar dengan tarif hari kerja (${overtimeTotals.holidayManual.slice(0, 3).join(", ")}) — tarif lembur hari libur belum dimodelkan.`,
+    );
+  }
+
+  if (overtimeTotals.noHourlyBase) {
+    warnings.push(
+      "Karyawan per tugas tidak punya tarif sejam — lembur tidak dihitung otomatis, bayar lewat tugas tambahan bila perlu.",
+    );
+  }
+
+  if (overtimeTotals.manualEntries > 0) {
+    warnings.push(
+      `${overtimeTotals.manualEntries} absensi memakai lembur manual (mengalahkan hitungan otomatis dari jam clock-in/out).`,
+    );
   }
 
   // Ongkos kedatangan dihitung untuk semua tipe gaji: yang dibayar per kedatangan

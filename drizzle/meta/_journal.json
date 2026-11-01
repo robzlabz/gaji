@@ -29,6 +29,20 @@
       "when": 1792425908095,
       "tag": "0003_mighty_mandroid",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793497408278,
+      "tag": "0004_lembur_otomatis",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793497409818,
+      "tag": "0005_drop_overtime_multiplier_lama",
+      "breakpoints": true
     }
   ]
 }

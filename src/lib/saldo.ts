@@ -11,6 +11,8 @@
  * Kalau keduanya menghitung sendiri-sendiri, angka saldo dan slip bisa berbeda.
  */
 
+import { DEFAULT_OVERTIME_SETTINGS } from "./overtime";
+
 /** Ambang peringatan saldo tipis. Hard-coded sesuai permintaan owner. */
 export const SALDO_WARN_THRESHOLD = 200_000;
 
@@ -52,14 +54,19 @@ export function rateAtDate(
 export type AccrualEntryInput = {
   /** Menit kerja efektif (sudah dikurangi istirahat). */
   minutes: number;
-  /** Bagian dari menit kerja yang dihitung lembur (catatan manual). */
-  overtimeMinutes?: number;
+  /**
+   * Lembur yang diakui, sudah dipecah oleh `src/lib/overtime.ts`
+   * (`splitOvertimeMinutes` / `overtimeForEntry`). Kosong = tanpa lembur.
+   */
+  overtime?: { firstMinutes: number; nextMinutes: number } | null;
   /** Tarif per jam yang berlaku pada tanggal absensi. */
   rate: number;
   /** Ongkos kedatangan yang tersimpan di baris absensi. */
   transportAmount?: number;
-  /** Pengali lembur dari pengaturan org (default 1). */
-  overtimeMultiplier?: number;
+  /** Pengali lembur jam pertama dari pengaturan org (PP 35/2021: 1,5). */
+  firstHourMultiplier?: number;
+  /** Pengali lembur jam berikutnya dari pengaturan org (PP 35/2021: 2). */
+  nextHourMultiplier?: number;
 };
 
 export type AccrualBreakdown = {
@@ -86,14 +93,27 @@ export type AccrualBreakdown = {
  */
 export function accrualForEntry(input: AccrualEntryInput): AccrualBreakdown {
   const minutes = Math.max(0, Math.floor(toNum(input.minutes)));
-  const overtime = Math.min(minutes, Math.max(0, Math.floor(toNum(input.overtimeMinutes))));
-  const regularMinutes = minutes - overtime;
+  const firstMinutes = Math.max(0, Math.floor(toNum(input.overtime?.firstMinutes)));
+  const nextMinutes = Math.max(0, Math.floor(toNum(input.overtime?.nextMinutes)));
+  const overtime = firstMinutes + nextMinutes;
+  const regularMinutes = Math.max(0, minutes - overtime);
   const rate = Math.max(0, toNum(input.rate));
-  const multiplier = input.overtimeMultiplier && input.overtimeMultiplier > 0 ? input.overtimeMultiplier : 1;
+  const firstMultiplier =
+    toNum(input.firstHourMultiplier) > 0
+      ? toNum(input.firstHourMultiplier)
+      : DEFAULT_OVERTIME_SETTINGS.firstHourMultiplier;
+  const nextMultiplier =
+    toNum(input.nextHourMultiplier) > 0
+      ? toNum(input.nextHourMultiplier)
+      : DEFAULT_OVERTIME_SETTINGS.nextHourMultiplier;
   const transportAmount = Math.max(0, Math.round(toNum(input.transportAmount)));
 
+  // Pembulatan per bagian (bukan per periode): angka inilah yang memotong saldo harian,
+  // jadi slip harus memakai pembulatan yang sama supaya tidak ada selisih.
   const regularWage = Math.round((regularMinutes / 60) * rate);
-  const overtimeWage = Math.round((overtime / 60) * rate * multiplier);
+  const overtimeWage =
+    Math.round((firstMinutes / 60) * rate * firstMultiplier) +
+    Math.round((nextMinutes / 60) * rate * nextMultiplier);
   const wageAmount = regularWage + overtimeWage;
 
   return {

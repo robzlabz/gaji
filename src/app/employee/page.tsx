@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { timeEntries } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
 import { estimatePay } from "@/lib/estimate";
+import { overtimeSettingsFromOrg } from "@/lib/overtime";
 import { ClockCard } from "./clock-card";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
@@ -88,7 +89,7 @@ export default async function EmployeeHome({
       isActive: employee.isActive,
     },
     period,
-    overtimeMultiplier: toNumber(org.overtimeMultiplier),
+    overtime: overtimeSettingsFromOrg(org),
   });
   const saldo = estimate.saldo;
 

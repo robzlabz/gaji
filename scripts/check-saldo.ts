@@ -43,12 +43,24 @@ check("1,5 jam dibulatkan per kedatangan", partial.total, 25_000);
 /* 2. lembur ---------------------------------------------------------------- */
 const overtime = accrualForEntry({
   minutes: 300,
-  overtimeMinutes: 60,
+  overtime: { firstMinutes: 60, nextMinutes: 0 },
   rate: 10_000,
-  overtimeMultiplier: 1.5,
+  firstHourMultiplier: 1.5,
+  nextHourMultiplier: 2,
 });
 check("lembur 1 jam ×1,5 tidak dobel", [overtime.regularMinutes, overtime.overtimeMinutes], [240, 60]);
 check("  · nilai lembur", overtime.wageAmount, 40_000 + 15_000);
+
+// Dua tangga tarif: jam pertama 1,5× lalu jam berikutnya 2×.
+const overtimeLadder = accrualForEntry({
+  minutes: 300,
+  overtime: { firstMinutes: 60, nextMinutes: 60 },
+  rate: 10_000,
+  firstHourMultiplier: 1.5,
+  nextHourMultiplier: 2,
+});
+check("lembur 2 jam: 1,5× + 2×", [overtimeLadder.regularMinutes, overtimeLadder.overtimeMinutes], [180, 120]);
+check("  · nilai lembur bertingkat", overtimeLadder.wageAmount, 30_000 + 15_000 + 20_000);
 
 /* 3. slip memakai angka yang sama ----------------------------------------- */
 function entry(workDate: string, transportAmount: number): TimeEntryInput {

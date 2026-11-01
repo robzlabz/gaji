@@ -218,7 +218,10 @@ export default async function AttendancePage({
                             inputMode="numeric"
                           />
                         </FormField>
-                        <FormField label="Lembur (menit)">
+                        <FormField
+                          label="Lembur (menit)"
+                          hint="0 = dihitung otomatis dari selisih jam clock-in/out (jam pertama 1,5×, berikutnya 2×). Isi angka di sini untuk menimpa hitungan otomatis."
+                        >
                           <Input
                             name="overtimeMinutes"
                             defaultValue={row.overtimeMinutes}
