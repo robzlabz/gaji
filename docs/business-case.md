@@ -23,7 +23,7 @@ Tiga hal membuat posisi produk ini berbeda dari spreadsheet dan dari aplikasi HR
 2. **Dua mekanisme uang muka yang memang dipakai UMKM: kasbon dan saldo.** Kasbon adalah utang karyawan yang dipotong dari slip; saldo adalah uang yang sudah dikirim owner lebih dulu dan dipotong per kehadiran. Keduanya punya ledger sendiri dan aturan potong yang eksplisit.
 3. **Pemakaian tanpa pelatihan.** Login nomor HP + PIN 6 digit, antarmuka karyawan berjalan sebagai PWA di HP, dan data dibatasi per organisasi.
 
-**Rekomendasi:** jadikan Gaji produk berlangganan per organisasi dengan tiga tingkat harga, mulai dari gratis untuk usaha di bawah 5 karyawan. Nilai yang diterima pelanggan 15 karyawan sekitar **Rp630.000/bulan** (hemat waktu admin + biaya kesalahan + risiko saldo), terhadap harga **Rp149.000/bulan** — ROI sekitar **4,2×** pada skenario dasar dan **2,9×** pada skenario konservatif. Model ini belum diuji ke pengguna nyata dan harus divalidasi pada 20–30 wawancara sebelum harga dikunci.
+**Rekomendasi:** jadikan Gaji produk berlangganan dengan harga rendah: gratis untuk usaha di bawah 5 karyawan, **Rp50.000/bulan** untuk usaha kecil, dan **Rp100.000/bulan** untuk usaha dengan banyak cabang — ditagih **tahunan** secara default (Rp500.000 dan Rp1.000.000/tahun), karena pemilik usaha kecil di Indonesia enggan membayar bulanan. Nilai yang diterima pelanggan 15 karyawan sekitar **Rp630.000/bulan**, terhadap harga **Rp50.000/bulan** — ROI sekitar **12,6×** pada skenario dasar dan **8,6×** pada skenario konservatif. Model ini belum diuji ke pengguna nyata dan harus divalidasi pada 20–30 wawancara sebelum harga dikunci.
 
 ---
 
@@ -126,11 +126,11 @@ Model asumsi, bukan hasil riset primer:
 
 | Lapis | Definisi | Unit | Nilai/tahun |
 | --- | --- | --- | --- |
-| TAM | UMKM 64,2 juta × asumsi 2% adalah pemberi kerja dengan ≥5 karyawan | 1.284.000 | Rp3,22 triliun |
-| SAM | 30% TAM: sudah digital, upah campuran, ada admin | 385.200 | Rp966 miliar |
-| SOM (tahun 3) | 1.500 pelanggan berbayar = 0,39% SAM | 1.500 | Rp3,76 miliar ARR |
+| TAM | UMKM 64,2 juta × asumsi 2% adalah pemberi kerja dengan ≥5 karyawan | 1.284.000 | Rp1,00 triliun |
+| SAM | 30% TAM: sudah digital, upah campuran, ada admin | 385.200 | Rp300 miliar |
+| SOM (tahun 3) | 3.000 pelanggan berbayar = 0,78% SAM | 3.000 | Rp2,34 miliar ARR |
 
-ARPU campuran Rp209.000/bulan berasal dari asumsi 70% pelanggan di paket Rp149.000 dan 30% di paket Rp349.000. Jika asumsi 2% terlalu optimistis (misalnya hanya 1%), TAM turun menjadi Rp1,61 triliun dan SOM tahun 3 tetap 0,78% dari SAM — kesimpulan "pasar cukup besar untuk target 1.500 pelanggan" tidak berubah.
+ARPU campuran **Rp65.000/bulan** berasal dari asumsi 70% pelanggan di paket Rp50.000 dan 30% di paket Rp100.000. Jika asumsi 2% terlalu optimistis (misalnya hanya 1%), TAM turun menjadi Rp502 miliar dan target 3.000 pelanggan menjadi 1,56% SAM — masih dalam jangkauan, tetapi menuntut kanal akuisisi yang lebih murah daripada penjualan langsung.
 
 ---
 
@@ -138,30 +138,51 @@ ARPU campuran Rp209.000/bulan berasal dari asumsi 70% pelanggan di paket Rp149.0
 
 ### 5.1 Usulan paket
 
-| Paket | Harga/bulan | Isi | Alasan adanya |
+Harga dibuat rendah dengan sengaja: modal kecil, tanpa tim penjualan, dan pelanggan usaha mikro yang tidak akan membayar harga korporat. Dua harga berbayar saja — cukup untuk memisahkan usaha kecil dari usaha multi-cabang.
+
+| Paket | Harga | Isi | Alasan adanya |
 | --- | --- | --- | --- |
 | **Gratis** | Rp0 | ≤5 karyawan, 1 cabang, absensi + slip | Menghapus hambatan coba; usaha mikro jadi pintu masuk |
-| **Tumbuh** | Rp149.000 | ≤15 karyawan, kasbon + saldo, cuti, ekspor CSV | Harga setara satu kali makan tim; titik di mana rasa sakit manual paling terasa |
-| **Bisnis** | Rp349.000 | ≤50 karyawan, multi-cabang, audit log, MCP | Nilai utama: kontrol dan jejak audit lintas cabang |
-| **Konsultan** | Nego | Banyak organisasi, dukungan prioritas | Kanal distribusi; satu konsultan membawa banyak tenant |
+| **Dasar** | **Rp50.000/bulan**, atau **Rp500.000/tahun** | ≤15 karyawan, kasbon + saldo, cuti, ekspor CSV | Di bawah ambang "tidak perlu mikir"; setara Rp3.300/karyawan/bulan untuk 15 orang |
+| **Lengkap** | **Rp100.000/bulan**, atau **Rp1.000.000/tahun** | ≤50 karyawan, multi-cabang, audit log, MCP | Yang dibayar adalah kontrol dan jejak audit lintas cabang |
+| **Konsultan** | Nego, mulai 5 organisasi | Banyak organisasi, ekspor massal, dukungan prioritas | Kanal distribusi; satu konsultan membawa banyak tenant |
 
-Kelebihan karyawan di atas kuota: **Rp15.000/karyawan/bulan**. Harga per karyawan pada paket Tumbuh setara **±Rp9.900/karyawan/bulan** untuk 15 orang — masih di bawah biaya satu jam lembur karyawan.
+- **Tagihan tahunan adalah jalur utama.** Harga tahunan = 10× harga bulanan, artinya dua bulan gratis. Ini bukan sekadar diskon: pemilik usaha kecil lebih mau membayar sekali Rp500.000 daripada diingatkan setiap bulan.
+- **Bulanan tetap tersedia** untuk yang ingin mencoba lebih lama sebelum berkomitmen setahun, dengan harga penuh.
+- **Kelebihan karyawan** di atas kuota: **Rp5.000/karyawan/bulan**.
+- Harga per karyawan pada paket Dasar untuk 15 orang adalah **Rp3.333/bulan** — masih di bawah biaya satu jam lembur seorang karyawan.
 
-### 5.2 Skenario pendapatan
+### 5.2 Konsekuensi harga rendah yang harus diterima
 
-Asumsi: ARPU Rp209.000, tanpa diskon tahunan, tanpa pendapatan setup.
+Harga Rp50.000 hanya masuk akal bila biaya melayani satu pelanggan juga kecil. Aturan yang mengikat keputusan produk:
 
-| Tahun | Pelanggan berbayar | MRR | ARR | Pangsa SAM |
-| --- | --- | --- | --- | --- |
-| 1 | 150 | Rp31.350.000 | Rp376 juta | 0,04% |
-| 2 | 600 | Rp125.400.000 | Rp1,50 miliar | 0,16% |
-| 3 | 1.500 | Rp313.500.000 | Rp3,76 miliar | 0,39% |
+| Konsekuensi | Artinya dalam praktik |
+| --- | --- |
+| **Wajib self-serve** | Tidak ada onboarding manual atau pendampingan per pelanggan; kalau ada, Rp50.000 habis di 15 menit pertama |
+| **Dukungan asinkron** | Dokumentasi + email/WhatsApp, bukan telepon. Dukungan prioritas hanya untuk paket Konsultan |
+| **Akuisisi tanpa sales** | Konten, komunitas pemilik usaha, dan mitra konsultan — bukan iklan berbayar dengan CAC tinggi |
+| **Plafon biaya dukungan** | Biaya dukungan harus **< Rp10.000/pelanggan/bulan**; jika lewat, harga naik atau paket dipecah, bukan ditekan dengan mengurangi kualitas |
+| **Tidak ada janji SLA** | Untuk pasar ini, keandalan dijaga lewat rekayasa (migrasi otomatis, backup), bukan kontrak SLA |
 
-Struktur biaya yang perlu dijaga: infrastruktur (Postgres + container), payment gateway (±2,9%), dan dukungan pelanggan. Pada 600 pelanggan, satu orang dukungan penuh waktu + infrastruktur masih menyisakan margin kotor yang sehat; angka pastinya perlu diukur setelah ada data pemakaian nyata.
+### 5.3 Skenario pendapatan
 
-### 5.3 Mengapa berlangganan, bukan sekali bayar
+Asumsi: ARPU Rp65.000 (70% pelanggan di Rp50.000, 30% di Rp100.000), tanpa pendapatan setup, campuran tagihan bulanan dan tahunan.
 
-Penggajian berulang setiap bulan, dan nilainya justru muncul saat data menumpuk (riwayat tarif, saldo, kasbon, audit). Model langganan sejalan dengan beban operasional yang terus ada (hosting, dukungan, perubahan aturan upah), dan membuat pendapatan bisa diprediksi.
+| Tahun | Pelanggan berbayar | MRR | ARR | Pangsa SAM | Breakeven unit |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 250 | Rp16.250.000 | Rp195 juta | 0,06% | 95 pelanggan |
+| 2 | 1.000 | Rp65.000.000 | Rp780 juta | 0,26% | 190 pelanggan |
+| 3 | 3.000 | Rp195.000.000 | Rp2,34 miliar | 0,78% | 380 pelanggan |
+
+Breakeven dihitung dari biaya tetap bulanan (infrastruktur, alat, dukungan) dibagi margin per pelanggan setelah biaya payment gateway 2,9%: sekitar **Rp6 juta/bulan di tahun 1**, **Rp12 juta** di tahun 2, dan **Rp24 juta** di tahun 3. Pada 3.000 pelanggan, sisa margin per pelanggan sekitar **Rp61.000/bulan** — cukup untuk dukungan asinkron, tidak cukup untuk dukungan telepon tanpa menaikkan harga.
+
+Karena harga rendah, pertumbuhan ditentukan volume, bukan harga. Target 3.000 pelanggan pada tahun 3 adalah **0,78% SAM** — ambisius tetapi tidak mustahil untuk produk berharga Rp50.000 yang bisa dipakai tanpa pelatihan.
+
+### 5.4 Mengapa berlangganan tahunan, bukan sekali bayar
+
+Penggajian berulang setiap bulan, dan nilainya justru muncul saat data menumpuk (riwayat tarif, saldo, kasbon, audit), sehingga pendapatan berulang sejalan dengan manfaat yang dirasakan. Yang diubah dari model langganan biasa adalah **ritme penagihannya**: tahunan, nominal kecil, lewat QRIS/transfer/VA — bukan kartu kredit bulanan yang tidak cocok dengan kebiasaan pemilik usaha kecil.
+
+Satu hipotesis yang perlu diuji pada fase validasi: **bayar per proses payroll** (misalnya Rp15.000 sekali proses) untuk usaha yang menggaji tidak rutin. Model ini lebih sulit diprediksi pendapatannya, jadi jangan dijadikan jalur utama sebelum ada bukti permintaan.
 
 ---
 
@@ -176,7 +197,8 @@ Penggajian berulang setiap bulan, dan nilainya justru muncul saat data menumpuk 
 | **Kebocoran data antar-tenant** | Fatal untuk kepercayaan | Setiap query dibatasi `org_id`; MCP berjalan read-only dengan API key terikat satu organisasi |
 | **Kanal MCP disalahgunakan** | Data payroll terbaca pihak lain | Read-only, transaksi read-only, `statement_timeout` 20 detik, key bisa dicabut dari UI |
 | **Push ke `main` langsung deploy produksi** | Satu kesalahan bisa langsung terasa ke pelanggan | Wajib review sebelum merge, migrasi dijalankan otomatis saat container start, dan perubahan schema harus lewat migrasi yang di-commit |
-| **Harga belum divalidasi** | Salah harga = salah seluruh model | Validasi 20–30 wawancara + uji harga sebelum paket dikunci; gratis untuk 5 karyawan pertama menurunkan risiko coba |
+| **Harga belum divalidasi** | Salah harga = salah seluruh model | Validasi 20–30 wawancara + uji dua titik harga (Rp50.000 dan Rp100.000) serta pilihan tahunan vs per proses; gratis untuk 5 karyawan pertama menurunkan risiko coba |
+| **Harga rendah tidak menutup biaya dukungan** | Setiap pelanggan merugi pelan-pelan | Plafon biaya dukungan Rp10.000/pelanggan/bulan, wajib self-serve, dukungan prioritas hanya untuk paket Konsultan; naikkan harga bila plafon terlampaui |
 
 ---
 
@@ -184,10 +206,10 @@ Penggajian berulang setiap bulan, dan nilainya justru muncul saat data menumpuk 
 
 | Fase | Fokus | Alasan urutan |
 | --- | --- | --- |
-| **0 — Validasi** (0–2 bulan) | 20–30 wawancara pemilik usaha 5–50 karyawan; uji alur payroll nyata di 3–5 usaha; kunci harga | Semua angka di dokumen ini masih asumsi; validasi lebih murah daripada membangun billing untuk harga yang salah |
+| **0 — Validasi** (0–2 bulan) | 20–30 wawancara pemilik usaha 5–50 karyawan; uji alur payroll nyata di 3–5 usaha; uji kesediaan bayar pada Rp50.000 dan Rp100.000, tahunan vs per proses | Semua angka di dokumen ini masih asumsi; validasi lebih murah daripada membangun billing untuk harga yang salah |
 | **1 — Siap dijual** (2–4 bulan) | Billing & kuota paket, onboarding mandiri, halaman status/langganan, dokumentasi pelanggan, PPh 21/BPJS versi awal | Tanpa billing tidak ada pendapatan; tanpa pajak/BPJS produk belum menyelesaikan pekerjaan sampai tuntas |
 | **2 — Menjadi sistem** (4–8 bulan) | THR & pesangon, lembur otomatis, payout ke rekening, tanda tangan kontrak, laporan biaya tenaga kerja per cabang | Menaikkan nilai per pelanggan dan memperkuat alasan tidak pindah |
-| **3 — Skala** (8–12 bulan) | Program mitra konsultan, API/MCP lebih kaya, benchmark upah per vertikal, paket tahunan | Distribusi lewat mitra lebih murah daripada akuisisi langsung |
+| **3 — Skala** (8–12 bulan) | Program mitra konsultan, API/MCP lebih kaya, benchmark upah per vertikal, paket multi-tahun | Distribusi lewat mitra lebih murah daripada akuisisi langsung |
 
 ---
 
@@ -201,7 +223,7 @@ Penggajian berulang setiap bulan, dan nilainya justru muncul saat data menumpuk 
 | Retensi | Organisasi yang menjalankan payroll 3 bulan berturut-turut | ≥70% |
 | Kualitas | Slip yang direvisi setelah difinalkan | <2% |
 | Kepercayaan | Selisih saldo setelah `resync` | 0 |
-| Pendapatan | ARPU dan churn bulanan | ARPU ≥Rp200.000; churn <3% |
+| Pendapatan | ARPU dan churn bulanan | ARPU ≥Rp60.000; churn <3% |
 | Efisiensi dukungan | Tiket per 100 organisasi/bulan | <10 |
 
 ---
@@ -209,9 +231,9 @@ Penggajian berulang setiap bulan, dan nilainya justru muncul saat data menumpuk 
 ## 9. Keputusan yang diminta
 
 1. **Setuju pada segmen utama** (5–50 karyawan, upah campuran) sebagai target 12 bulan pertama?
-2. **Setuju pada struktur tiga paket** dan rentang harga di §5.1 sebagai hipotesis yang akan divalidasi, bukan harga final?
+2. **Setuju pada dua harga berbayar (Rp50.000 dan Rp100.000)** dengan tagihan tahunan sebagai jalur utama, sebagai hipotesis yang akan divalidasi — bukan harga final?
 3. **Setuju bahwa PPh 21/BPJS adalah prioritas fase 1** dan bahwa klaim pemasaran tidak boleh mendahuluinya?
-4. **Setuju pada target SOM tahun 3 (1.500 pelanggan berbayar)** sebagai angka perencanaan?
+4. **Setuju pada target SOM tahun 3 (3.000 pelanggan berbayar)** sebagai angka perencanaan, dengan breakeven di 95 pelanggan pada tahun 1?
 
 ---
 
@@ -247,13 +269,15 @@ Penggajian berulang setiap bulan, dan nilainya justru muncul saat data menumpuk 
 - Hemat waktu = (12 − 3) × Rp45.000 = **Rp405.000**.
 - Koreksi kesalahan = 1 kesalahan per 2 periode × Rp250.000 = **Rp125.000**.
 - Risiko saldo/kasbon tak terpantau = **Rp100.000** (estimasi konservatif).
-- Total = **Rp630.000**; net setelah harga Rp149.000 = **Rp481.000**; ROI **4,2×**.
-- Skenario konservatif (hanya 50% penghematan waktu terwujud) = Rp427.500 → ROI **2,9×**.
+- Total = **Rp630.000**; net setelah harga Rp50.000 = **Rp580.000**; ROI **12,6×**.
+- Skenario konservatif (hanya 50% penghematan waktu terwujud) = Rp427.500 → ROI **8,6×**. Harga tetap menguntungkan bahkan jika penghematan waktu hanya seperempat dari perkiraan (Rp101.250 → ROI **2,0×**).
 
 **Pasar (§4.3)**
 - TAM unit = 64.200.000 × 2% = 1.284.000; TAM nilai = unit × ARPU × 12.
 - SAM = 30% × TAM.
-- ARPU = (70% × Rp149.000) + (30% × Rp349.000) = Rp209.000.
+- ARPU = (70% × Rp50.000) + (30% × Rp100.000) = Rp65.000.
+- Breakeven unit = biaya tetap bulanan ÷ (ARPU × (1 − 2,9%)); contoh tahun 1: Rp6.000.000 ÷ Rp63.115 = 95 pelanggan.
+- Harga tahunan = 10 × harga bulanan (dua bulan gratis).
 - SOM = pelanggan berbayar × ARPU × 12.
 
 **Yang perlu diganti dengan data nyata sebelum keputusan final:** jumlah jam admin per periode, tarif waktu admin, frekuensi kesalahan bayar, persentase UMKM dengan ≥5 karyawan, dan harga yang bersedia dibayar.
