@@ -22,6 +22,15 @@ import {
   workTasks,
 } from "@/db/schema";
 import { AccountError, createCredentialUser, setPin } from "@/lib/accounts";
+import {
+  BillingError,
+  countActiveEmployees,
+  effectivePlan,
+  guardEmployeeQuota,
+  QuotaExceededError,
+  recordManualPayment,
+} from "@/lib/billing-server";
+import { employeeQuota, isBillingCycle, isPaymentMethod, isPlanId, planLabel } from "@/lib/plans";
 import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
 import {
   accrueForEntry,
@@ -44,6 +53,7 @@ import {
   toNumber,
   localDateString,
   formatDateID,
+  rupiah,
 } from "@/lib/format";
 import { findCountry } from "@/lib/countries";
 
@@ -167,6 +177,12 @@ export async function createEmployeeAction(formData: FormData) {
   if (!fullName) fail(backTo, "Nama karyawan wajib diisi.");
   if (!["hourly", "daily", "monthly", "per_task"].includes(payType))
     fail(backTo, "Tipe penggajian tidak valid.");
+
+  // Kuota paket dicek SEBELUM akun login dibuat, jadi penolakan tidak meninggalkan
+  // user yatim. Pesannya menyebut nama paket + batasnya (bukan error 500).
+  const plan = await effectivePlan(org.id);
+  const quota = employeeQuota(plan.id, await countActiveEmployees(org.id));
+  if (!quota.allowed) fail(backTo, quota.message);
   if (payRate <= 0) fail(backTo, "Tarif harus lebih dari 0.");
 
   let userId: string | null = null;
@@ -183,19 +199,32 @@ export async function createEmployeeAction(formData: FormData) {
     throw error;
   }
 
-  const [employee] = await db
-    .insert(employees)
-    .values({
-      orgId: org.id,
-      userId,
-      code,
-      fullName,
-      payType,
-      payRate: payRate.toString(),
-      transportRate: transportRate.toString(),
-      joinedAt,
+  const employee = await db
+    .transaction(async (tx) => {
+      // Dicek ulang di dalam transaksi (baris organisasi dikunci) supaya dua admin
+      // yang menambah karyawan bersamaan tidak bisa menembus batas paket.
+      await guardEmployeeQuota(tx, org.id, plan.id);
+
+      const rows = await tx
+        .insert(employees)
+        .values({
+          orgId: org.id,
+          userId,
+          code,
+          fullName,
+          payType,
+          payRate: payRate.toString(),
+          transportRate: transportRate.toString(),
+          joinedAt,
+        })
+        .returning();
+      return rows[0];
     })
-    .returning();
+    .catch((error: unknown) => {
+      // Penolakan kuota = pesan ramah, bukan error 500.
+      if (error instanceof QuotaExceededError) fail(backTo, error.message);
+      throw error;
+    });
 
   if (userId) {
     await db
@@ -1887,4 +1916,71 @@ export async function deletePayrollDraftAction(formData: FormData) {
 
   revalidatePath("/admin/payroll");
   ok("/admin/payroll", "Draft payroll dihapus.");
+}
+
+/* ------------------------------ langganan ------------------------------ */
+
+/**
+ * Catat pembayaran langganan manual (transfer/QRIS).
+ *
+ * Belum ada payment gateway, jadi owner/admin mengunggah bukti transfer di luar
+ * aplikasi lalu mencatatnya di sini: satu tagihan `paid` + periode baru.
+ * `requireAdmin()` sudah menolak peran `employee` sebelum apa pun ditulis.
+ */
+export async function recordPaymentAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const backTo = "/admin/langganan";
+
+  const planId = str(formData, "plan");
+  const cycle = str(formData, "cycle");
+  const method = str(formData, "method");
+  const amount = optionalNumber(formData, "amount");
+  const note = optionalStr(formData, "note");
+
+  if (!isPlanId(planId)) fail(backTo, "Paket tidak dikenal.");
+  if (!isBillingCycle(cycle)) fail(backTo, "Siklus tagihan harus bulanan atau tahunan.");
+  if (!isPaymentMethod(method)) fail(backTo, "Metode pembayaran harus transfer atau QRIS.");
+  if (note && note.length > 200) fail(backTo, "Catatan maksimal 200 karakter.");
+
+  const today = localDateString(new Date(), org.timezone);
+
+  let result;
+  try {
+    result = await recordManualPayment({
+      orgId: org.id,
+      actorId: user.id,
+      planId,
+      cycle,
+      method,
+      amount,
+      todayISO: today,
+      note,
+    });
+  } catch (error) {
+    if (error instanceof BillingError) fail(backTo, error.message);
+    throw error;
+  }
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "subscriptions",
+    entityId: result.subscription.id,
+    action: "record_payment",
+    diff: {
+      invoice: result.invoice.number,
+      plan: result.invoice.plan,
+      cycle: result.invoice.cycle,
+      amount: result.amount,
+      method,
+      periodStart: result.periodStart,
+      periodEnd: result.periodEnd,
+    },
+  });
+
+  revalidatePath("/admin/langganan");
+  ok(
+    backTo,
+    `Pembayaran ${rupiah(result.amount)} dicatat · paket ${planLabel(planId)} aktif sampai ${formatDateID(result.periodEnd)}.`,
+  );
 }

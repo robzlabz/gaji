@@ -585,6 +585,88 @@ export const payslipItems = pgTable(
 );
 
 /* ------------------------------------------------------------------ */
+/* Langganan & tagihan                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Langganan aktif satu organisasi.
+ *
+ * Organisasi yang belum punya baris sama sekali diperlakukan sebagai paket Gratis
+ * (lihat `src/lib/plans.ts`), jadi org lama tidak perlu di-backfill saat migrasi.
+ *
+ * Hanya boleh ada satu baris `active` per org (partial unique index), sedangkan
+ * baris `expired`/`cancelled` disimpan sebagai riwayat saat paket berganti.
+ */
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** id paket di `PLAN_IDS` (gratis/dasar/lengkap/konsultan). */
+    plan: text("plan").notNull().default("gratis"),
+    /** "monthly" | "annual" */
+    cycle: text("cycle").notNull().default("monthly"),
+    /** "active" | "expired" | "cancelled" */
+    status: text("status").notNull().default("active"),
+    /** Periode berbayar, inklusif di kedua ujung. */
+    currentPeriodStart: date("current_period_start").notNull(),
+    currentPeriodEnd: date("current_period_end").notNull(),
+    /** Tagihan terakhir yang memperpanjang periode ini (jejak audit). */
+    lastInvoiceId: uuid("last_invoice_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("subscriptions_org_active_uniq")
+      .on(t.orgId)
+      .where(sql`status = 'active'`),
+    index("subscriptions_org_idx").on(t.orgId, t.currentPeriodEnd),
+  ],
+);
+
+/**
+ * Tagihan langganan. Pembayaran dicatat manual oleh owner/admin (transfer/QRIS),
+ * jadi baris bisa lahir langsung berstatus `paid` — tidak ada payment gateway.
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
+      onDelete: "set null",
+    }),
+    /** Nomor unik yang tampil ke pelanggan, mis. INV-202611-1A2B3C4D-001. */
+    number: text("number").notNull(),
+    plan: text("plan").notNull(),
+    cycle: text("cycle").notNull(),
+    /** Nominal yang ditagih (Rp). Paket nego diisi manual. */
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    issuedAt: date("issued_at").notNull(),
+    dueAt: date("due_at").notNull(),
+    /** "unpaid" | "paid" */
+    status: text("status").notNull().default("unpaid"),
+    /** "transfer" | "qris" — hanya terisi saat lunas. */
+    method: text("method"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** Periode yang dibayar tagihan ini, supaya riwayat tidak ambigu. */
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    note: text("note"),
+    recordedBy: uuid("recorded_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("invoices_number_uniq").on(t.number),
+    index("invoices_org_idx").on(t.orgId, t.issuedAt),
+  ],
+);
+
+/* ------------------------------------------------------------------ */
 /* Audit                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -666,3 +748,5 @@ export type LeaveStatus = "pending" | "approved" | "rejected" | "void";
 export type Role = "owner" | "admin" | "employee";
 export type WageFloatTxnKind = "topup" | "accrual" | "adjust" | "settle" | "kasbon";
 export type RateHistoryKind = "wage" | "transport";
+export type SubscriptionStatus = "active" | "expired" | "cancelled";
+export type InvoiceStatus = "unpaid" | "paid";

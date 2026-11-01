@@ -5,6 +5,8 @@ import { cookies } from "next/headers";
 import { db } from "@/db";
 import { memberships, organizations, user } from "@/db/schema";
 import { audit } from "@/lib/audit";
+import { countOwnedOrgs, planForOwner } from "@/lib/billing-server";
+import { branchQuota } from "@/lib/plans";
 import { ORG_COOKIE, getSession } from "@/lib/session";
 
 export type RegisterResult = { ok: true; orgId: string } | { ok: false; message: string };
@@ -101,6 +103,15 @@ export async function provisionOwnerAccount(input: {
   }
 
   const slug = await uniqueSlug(slugify(orgName));
+
+  // Kuota cabang: satu akun owner boleh mengelola beberapa organisasi sesuai paket
+  // (Gratis/Dasar = 1 cabang). Organisasi pertama selalu lolos.
+  const ownedOrgs = await countOwnedOrgs(session.user.id);
+  if (ownedOrgs > 0) {
+    const plan = await planForOwner(session.user.id);
+    const quota = branchQuota(plan.id, ownedOrgs);
+    if (!quota.allowed) return { ok: false, message: quota.message };
+  }
 
   const orgId = await db.transaction(async (tx) => {
     const [org] = await tx.insert(organizations).values({ name: orgName, slug }).returning();
