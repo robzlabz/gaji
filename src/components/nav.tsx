@@ -10,6 +10,8 @@ import {
   ClipboardCheckIcon,
   CoinsIcon,
   FileTextIcon,
+  GiftIcon,
+  HandCoinsIcon,
   HistoryIcon,
   LayoutDashboardIcon,
   MenuIcon,
@@ -45,6 +47,8 @@ const adminItems: NavItem[] = [
   { href: "/admin/kasbon", label: "Kasbon", icon: WalletIcon },
   { href: "/admin/saldo", label: "Saldo", icon: CoinsIcon },
   { href: "/admin/payroll", label: "Payroll", icon: BanknoteIcon },
+  { href: "/admin/thr", label: "THR", icon: GiftIcon },
+  { href: "/admin/pesangon", label: "Pesangon", icon: HandCoinsIcon },
   { href: "/admin/pengaturan", label: "Pengaturan", icon: SettingsIcon },
   { href: "/admin/mcp", label: "MCP", icon: PlugIcon },
 ];

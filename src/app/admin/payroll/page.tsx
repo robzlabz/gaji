@@ -8,7 +8,7 @@ import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
-import { statusLabel } from "@/lib/labels";
+import { statusLabel, PAY_PERIOD_KIND_LABEL } from "@/lib/labels";
 import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +46,7 @@ export default async function PayrollPage({
       periodStart: payPeriods.periodStart,
       periodEnd: payPeriods.periodEnd,
       payDate: payPeriods.payDate,
+      kind: payPeriods.kind,
       status: payPeriods.status,
       employees: sql<number>`count(${payslips.id})`,
       totalNet: sql<string>`coalesce(sum(${payslips.net}), 0)`,
@@ -61,13 +62,16 @@ export default async function PayrollPage({
   const draftCount = rows.filter((row) => row.status === "draft").length;
 
   // Periode void tidak dipakai sebagai penghalang irisan: payroll-nya sudah dibatalkan.
-  // Tapi tanggal mulainya tetap terpakai oleh indeks unik (org_id, period_start).
+  // Slip THR/pesangon (kind selain `regular`) juga tidak: itu pembayaran sekali pada satu
+  // tanggal, bukan periode gaji — kalau ikut dihitung, payroll bulan itu jadi terkunci.
   const countedPeriods = rows
-    .filter((row) => row.status !== "void")
+    .filter((row) => row.status !== "void" && row.kind === "regular")
     .map((row) => ({ start: row.periodStart, end: row.periodEnd }));
   const periodOptions = options.map((period) => {
     const overlapping = countedPeriods.some((existing) => periodsOverlap(period, existing));
-    const startTaken = rows.some((row) => row.periodStart === period.start);
+    const startTaken = rows.some(
+      (row) => row.periodStart === period.start && row.kind === "regular",
+    );
     return {
       period,
       disabled: overlapping || startTaken,
@@ -101,7 +105,7 @@ export default async function PayrollPage({
   // Kalau periode itu sudah ada di daftar pilihan (menempel tanpa celah), juga tidak perlu ditambah.
   const transition =
     gapPeriod &&
-    !rows.some((row) => row.periodStart === gapPeriod.start) &&
+    !rows.some((row) => row.periodStart === gapPeriod.start && row.kind === "regular") &&
     !periodOptions.some((option) => !option.disabled && option.period.start === gapPeriod.start)
       ? gapPeriod
       : null;
@@ -111,11 +115,21 @@ export default async function PayrollPage({
 
   return (
     <>
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Payroll</h1>
-        <p className="text-sm text-muted-foreground">
-          Periode gaji mengikuti tanggal mulai {org.payPeriodStartDay} yang diatur di Pengaturan.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Payroll</h1>
+          <p className="text-sm text-muted-foreground">
+            Periode gaji mengikuti tanggal mulai {org.payPeriodStartDay} yang diatur di Pengaturan.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/thr">Pratinjau THR</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/pesangon">Pratinjau pesangon</Link>
+          </Button>
+        </div>
       </header>
 
       <Flash ok={ok} err={err} />
@@ -215,6 +229,14 @@ export default async function PayrollPage({
                       <Link href={`/admin/payroll/${row.id}`} className="font-medium hover:underline">
                         {formatDateID(row.periodStart)} – {formatDateID(row.periodEnd)}
                       </Link>
+                      {row.kind !== "regular" ? (
+                        <StatusBadge
+                          tone={row.kind === "thr" ? "good" : "warn"}
+                          className="ml-2"
+                        >
+                          {PAY_PERIOD_KIND_LABEL[row.kind] ?? row.kind}
+                        </StatusBadge>
+                      ) : null}
                     </TableCell>
                     <TableCell className="tabular-nums text-muted-foreground">
                       {row.payDate ? formatDateID(row.payDate) : "—"}
