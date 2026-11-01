@@ -63,8 +63,13 @@ export async function payrollPreview(
     pay_type: string;
     pay_rate: string;
     joined_at: string;
+    ptkp_status: string | null;
+    npwp: string | null;
+    bpjs_kesehatan: boolean;
+    bpjs_ketenagakerjaan: boolean;
   }>(
-    `select id, full_name, pay_type, pay_rate, joined_at
+    `select id, full_name, pay_type, pay_rate, joined_at,
+            ptkp_status, npwp, bpjs_kesehatan, bpjs_ketenagakerjaan
        from employees where org_id = $1 and is_active order by full_name`,
     [org.id],
   );
@@ -200,6 +205,15 @@ export async function payrollPreview(
       period,
       joinedAt: employee.joined_at,
       overtimeMultiplier: org.overtimeMultiplier,
+      // Simulasi memakai data pajak/BPJS & tarif yang sama dengan aplikasi, supaya
+      // angka PPh 21/BPJS yang dilaporkan MCP identik dengan halaman Payroll.
+      statutory: {
+        ptkpStatus: employee.ptkp_status,
+        npwp: employee.npwp,
+        bpjsKesehatan: employee.bpjs_kesehatan,
+        bpjsKetenagakerjaan: employee.bpjs_ketenagakerjaan,
+      },
+      statutorySettings: org.statutorySettings,
       timeEntries: entries
         .filter((e) => e.employee_id === employee.id)
         .map((e) => ({

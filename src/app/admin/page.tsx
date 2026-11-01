@@ -87,6 +87,7 @@ export default async function AdminDashboard() {
 
   const preview = await previewPayroll(org.id, period, {
     overtimeMultiplier: toNumber(org.overtimeMultiplier),
+    statutory: org.statutorySettings,
   });
 
   const recentEntries = await db

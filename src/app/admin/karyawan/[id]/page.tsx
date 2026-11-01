@@ -52,6 +52,7 @@ import {
   toNumber,
 } from "@/lib/format";
 import { workedMinutes } from "@/lib/payroll";
+import { PTKP_LABEL, PTKP_STATUSES } from "@/lib/statutory";
 import { leaveKindLabel, leavePaidLabel, leaveStatusTone } from "@/lib/leave";
 
 const PAY_TYPE_OPTIONS = [
@@ -262,6 +263,43 @@ export default async function EmployeeDetailPage({
               <Input type="date" name="endedAt" defaultValue={employee.endedAt ?? ""} />
             </FormField>
             <CheckField name="isActive" label="Karyawan aktif" defaultChecked={employee.isActive} />
+            <Separator />
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium">Pajak &amp; BPJS</p>
+              <p className="text-xs text-muted-foreground">
+                Dipakai saat payroll dihitung. Nilai yang berlaku disalin ke slip, jadi mengubahnya
+                tidak mengubah slip yang sudah ada.
+              </p>
+            </div>
+            <FormField
+              label="Status PTKP"
+              hint="Kosong = PPh 21 tidak dihitung (karyawan tidak dipotong pajak)."
+            >
+              <SelectInput name="ptkpStatus" defaultValue={employee.ptkpStatus ?? ""}>
+                <option value="">Belum diisi (tidak dipotong)</option>
+                {PTKP_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {PTKP_LABEL[status]}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField
+              label="NPWP"
+              hint="15 atau 16 digit. Kosong = PPh 21 dihitung dengan tarif tanpa NPWP (+20%)."
+            >
+              <Input name="npwp" inputMode="numeric" defaultValue={employee.npwp ?? ""} />
+            </FormField>
+            <CheckField
+              name="bpjsKesehatan"
+              label="Peserta BPJS Kesehatan"
+              defaultChecked={employee.bpjsKesehatan}
+            />
+            <CheckField
+              name="bpjsKetenagakerjaan"
+              label="Peserta BPJS Ketenagakerjaan (JHT, JP, JKK, JKM)"
+              defaultChecked={employee.bpjsKetenagakerjaan}
+            />
             <div>
               <Button type="submit">Simpan perubahan</Button>
             </div>

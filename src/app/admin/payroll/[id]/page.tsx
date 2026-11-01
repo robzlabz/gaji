@@ -53,6 +53,9 @@ export default async function PayrollDetailPage({
       gross: payslips.gross,
       totalDeductions: payslips.totalDeductions,
       saldoCovered: payslips.saldoCovered,
+      pph21: payslips.pph21,
+      bpjsEmployee: payslips.bpjsEmployee,
+      bpjsEmployer: payslips.bpjsEmployer,
       net: payslips.net,
       status: payslips.status,
     })
@@ -78,6 +81,9 @@ export default async function PayrollDetailPage({
   const totalDeductions = slips.reduce((sum, slip) => sum + toNumber(slip.totalDeductions), 0);
   const totalNet = slips.reduce((sum, slip) => sum + toNumber(slip.net), 0);
   const totalSaldo = slips.reduce((sum, slip) => sum + toNumber(slip.saldoCovered), 0);
+  // Iuran perusahaan tidak pernah masuk `net` — ditampilkan terpisah sebagai informasi.
+  const totalBpjsEmployer = slips.reduce((sum, slip) => sum + toNumber(slip.bpjsEmployer), 0);
+  const totalPph21 = slips.reduce((sum, slip) => sum + toNumber(slip.pph21), 0);
 
   return (
     <>
@@ -166,10 +172,19 @@ export default async function PayrollDetailPage({
 
       <Flash ok={ok} err={err} />
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Bruto" value={rupiah(totalGross)} />
-        <StatCard label="Potongan" value={rupiah(totalDeductions)} hint="kasbon & potongan lain" />
+        <StatCard
+          label="Potongan"
+          value={rupiah(totalDeductions)}
+          hint={totalPph21 > 0 ? `termasuk PPh 21 ${rupiah(totalPph21)}` : "kasbon & potongan lain"}
+        />
         <StatCard label="Total net" value={rupiah(totalNet)} hint="yang dibayarkan" />
+        <StatCard
+          label="Iuran perusahaan"
+          value={rupiah(totalBpjsEmployer)}
+          hint="BPJS ditanggung perusahaan, tidak mengurangi net"
+        />
       </div>
 
       {totalSaldo > 0 && (
@@ -223,6 +238,17 @@ export default async function PayrollDetailPage({
                         bruto {rupiah(toNumber(slip.gross))} · potongan{" "}
                         {rupiah(toNumber(slip.totalDeductions))}
                       </p>
+                      {(toNumber(slip.pph21) > 0 || toNumber(slip.bpjsEmployee) > 0) && (
+                        <p className="text-xs text-muted-foreground">
+                          PPh 21 {rupiah(toNumber(slip.pph21))} · BPJS karyawan{" "}
+                          {rupiah(toNumber(slip.bpjsEmployee))}
+                        </p>
+                      )}
+                      {toNumber(slip.bpjsEmployer) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          iuran perusahaan {rupiah(toNumber(slip.bpjsEmployer))} (tidak mengurangi net)
+                        </p>
+                      )}
                       {toNumber(slip.saldoCovered) > 0 && (
                         <p className="text-xs text-muted-foreground">
                           termasuk saldo {rupiah(toNumber(slip.saldoCovered))}

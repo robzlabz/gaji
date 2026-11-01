@@ -90,6 +90,8 @@ export type Org = {
   workingDaysPerMonth: number;
   overtimeMultiplier: number;
   contractAlertDays: number;
+  /** Tarif iuran BPJS organisasi (JSON) — null = default di `src/lib/statutory.ts`. */
+  statutorySettings: unknown;
 };
 
 type OrgRow = {
@@ -101,6 +103,7 @@ type OrgRow = {
   working_days_per_month: number;
   overtime_multiplier: string | number;
   contract_alert_days: number;
+  statutory_settings: unknown;
 };
 
 function toOrg(row: OrgRow): Org {
@@ -113,11 +116,12 @@ function toOrg(row: OrgRow): Org {
     workingDaysPerMonth: row.working_days_per_month,
     overtimeMultiplier: Number(row.overtime_multiplier),
     contractAlertDays: row.contract_alert_days,
+    statutorySettings: row.statutory_settings,
   };
 }
 
 const ORG_COLUMNS = `id, name, slug, timezone, pay_period_start_day, working_days_per_month,
-  overtime_multiplier, contract_alert_days`;
+  overtime_multiplier, contract_alert_days, statutory_settings`;
 
 export async function listOrgs(): Promise<Org[]> {
   // Request MCP yang membawa API key terikat ke satu tenant: hanya org itu yang terlihat.

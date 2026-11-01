@@ -46,6 +46,7 @@ import {
   formatDateID,
 } from "@/lib/format";
 import { findCountry } from "@/lib/countries";
+import { isPtkpStatus, normalizeNpwp, resolveStatutorySettings } from "@/lib/statutory";
 
 /** Zona waktu yang boleh dipilih; menentukan batas tanggal absensi & periode gaji. */
 const TIMEZONE_OPTIONS = ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"];
@@ -69,6 +70,21 @@ function optionalNumber(fd: FormData, key: string): number | null {
   if (value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Status PTKP dari form: hanya nilai yang dikenal yang disimpan, selain itu null
+ * (= belum diisi, karyawan tidak dipotong PPh 21).
+ */
+function ptkpField(fd: FormData): string | null {
+  const value = str(fd, "ptkpStatus");
+  return isPtkpStatus(value) ? value : null;
+}
+
+/** NPWP disimpan sebagai digit saja (15 atau 16 digit); kosong = null. */
+function npwpField(fd: FormData): string | null {
+  const digits = normalizeNpwp(str(fd, "npwp"));
+  return digits === "" ? null : digits;
 }
 
 function flash(path: string, params: Record<string, string>): never {
@@ -120,6 +136,27 @@ export async function updateOrgSettingsAction(formData: FormData) {
   const geofenceLng = optionalNumber(formData, "geofenceLng");
   const geofenceRadius = optionalNumber(formData, "geofenceRadiusM");
 
+  // Tarif BPJS: dinormalkan lewat `resolveStatutorySettings` supaya nilai kosong /
+  // tidak masuk akal jatuh ke default kode, bukan tersimpan sebagai NaN.
+  const statutorySettings = resolveStatutorySettings({
+    kesehatan: {
+      employeePct: optionalNumber(formData, "bpjsKesehatanEmployeePct"),
+      employerPct: optionalNumber(formData, "bpjsKesehatanEmployerPct"),
+      wageCap: optionalNumber(formData, "bpjsKesehatanWageCap"),
+    },
+    jht: {
+      employeePct: optionalNumber(formData, "bpjsJhtEmployeePct"),
+      employerPct: optionalNumber(formData, "bpjsJhtEmployerPct"),
+    },
+    jp: {
+      employeePct: optionalNumber(formData, "bpjsJpEmployeePct"),
+      employerPct: optionalNumber(formData, "bpjsJpEmployerPct"),
+      wageCap: optionalNumber(formData, "bpjsJpWageCap"),
+    },
+    jkk: { riskClass: str(formData, "bpjsJkkRiskClass") },
+    jkm: { employerPct: optionalNumber(formData, "bpjsJkmEmployerPct") },
+  });
+
   await db
     .update(organizations)
     .set({
@@ -131,6 +168,7 @@ export async function updateOrgSettingsAction(formData: FormData) {
       geofenceLat,
       geofenceLng,
       geofenceRadiusM: geofenceRadius === null ? null : Math.round(geofenceRadius),
+      statutorySettings,
     })
     .where(eq(organizations.id, org.id));
 
@@ -140,7 +178,17 @@ export async function updateOrgSettingsAction(formData: FormData) {
     entity: "organizations",
     entityId: org.id,
     action: "update_settings",
-    diff: { startDay, alertDays, workingDays, multiplier, timezone: timezoneSafe, geofenceLat, geofenceLng, geofenceRadius },
+    diff: {
+      startDay,
+      alertDays,
+      workingDays,
+      multiplier,
+      timezone: timezoneSafe,
+      geofenceLat,
+      geofenceLng,
+      geofenceRadius,
+      statutorySettings,
+    },
   });
 
   revalidatePath("/admin/pengaturan");
@@ -163,6 +211,11 @@ export async function createEmployeeAction(formData: FormData) {
   const transportRate = Math.max(0, parseMoneyInput(formData.get("transportRate")));
   const joinedAt = str(formData, "joinedAt") || new Date().toISOString().slice(0, 10);
   const createLogin = str(formData, "createLogin") === "on";
+  // Data pajak/BPJS opsional: kosong = karyawan tidak dipotong apa pun (default aman).
+  const ptkpStatus = ptkpField(formData);
+  const npwp = npwpField(formData);
+  const bpjsKesehatan = str(formData, "bpjsKesehatan") === "on";
+  const bpjsKetenagakerjaan = str(formData, "bpjsKetenagakerjaan") === "on";
 
   if (!fullName) fail(backTo, "Nama karyawan wajib diisi.");
   if (!["hourly", "daily", "monthly", "per_task"].includes(payType))
@@ -194,6 +247,10 @@ export async function createEmployeeAction(formData: FormData) {
       payRate: payRate.toString(),
       transportRate: transportRate.toString(),
       joinedAt,
+      ptkpStatus,
+      npwp,
+      bpjsKesehatan,
+      bpjsKetenagakerjaan,
     })
     .returning();
 
@@ -230,7 +287,16 @@ export async function createEmployeeAction(formData: FormData) {
     entity: "employees",
     entityId: employee.id,
     action: "create",
-    diff: { fullName, payType, payRate, transportRate },
+    diff: {
+      fullName,
+      payType,
+      payRate,
+      transportRate,
+      ptkpStatus,
+      npwp,
+      bpjsKesehatan,
+      bpjsKetenagakerjaan,
+    },
   });
 
   revalidatePath("/admin/karyawan");
@@ -256,6 +322,17 @@ export async function updateEmployeeAction(formData: FormData) {
     ? Math.max(0, parseMoneyInput(formData.get("transportRate")))
     : toNumber(current.transportRate);
   const isActive = str(formData, "isActive") === "on";
+  // Form detail karyawan selalu mengirim field pajak/BPJS. Bila tidak (mis. form lain
+  // yang memakai action ini), nilai lama dipertahankan.
+  const hasStatutoryFields = formData.get("ptkpStatus") !== null || formData.get("npwp") !== null;
+  const ptkpStatus = hasStatutoryFields ? ptkpField(formData) : current.ptkpStatus;
+  const npwp = hasStatutoryFields ? npwpField(formData) : current.npwp;
+  const bpjsKesehatan = hasStatutoryFields
+    ? str(formData, "bpjsKesehatan") === "on"
+    : current.bpjsKesehatan;
+  const bpjsKetenagakerjaan = hasStatutoryFields
+    ? str(formData, "bpjsKetenagakerjaan") === "on"
+    : current.bpjsKetenagakerjaan;
   // Berhenti tanpa mengisi tanggal: isi otomatis hari ini (zona waktu organisasi)
   // supaya payroll tahu batas akhir upah. Tanggal berhenti yang sudah ada tidak ditimpa.
   const endedAt =
@@ -283,6 +360,10 @@ export async function updateEmployeeAction(formData: FormData) {
         transportRate: transportRate.toString(),
         isActive,
         endedAt,
+        ptkpStatus,
+        npwp,
+        bpjsKesehatan,
+        bpjsKetenagakerjaan,
       })
       .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)));
 
@@ -351,7 +432,17 @@ export async function updateEmployeeAction(formData: FormData) {
     entity: "employees",
     entityId: employeeId,
     action: "update",
-    diff: { payType, payRate, rateChanged, transportRate, transportChanged },
+    diff: {
+      payType,
+      payRate,
+      rateChanged,
+      transportRate,
+      transportChanged,
+      ptkpStatus,
+      npwp,
+      bpjsKesehatan,
+      bpjsKetenagakerjaan,
+    },
   });
 
   revalidatePath(`/admin/karyawan/${employeeId}`);
@@ -1282,6 +1373,7 @@ async function writePayrollSlips(
   },
 ) {
   for (const row of input.rows) {
+    const statutory = row.computation.statutory;
     const [slip] = await tx
       .insert(payslips)
       .values({
@@ -1293,6 +1385,11 @@ async function writePayrollSlips(
         gross: row.computation.gross.toString(),
         totalDeductions: row.computation.deductions.toString(),
         saldoCovered: row.saldo.covered.toString(),
+        pph21: (statutory?.pph21.taxMonthly ?? 0).toString(),
+        bpjsEmployee: (statutory?.employeeBpjsTotal ?? 0).toString(),
+        bpjsEmployer: (statutory?.employerTotal ?? 0).toString(),
+        // Snapshot lengkap: tarif, PTKP, rincian iuran, dan peringatan data yang kosong.
+        statutory: statutory ?? null,
         net: row.computation.net.toString(),
         status: "draft",
       })
@@ -1703,7 +1800,10 @@ export async function createPayrollRunAction(formData: FormData) {
   const preview = await previewPayroll(
     org.id,
     { start: periodStart, end: periodEnd },
-    { overtimeMultiplier: toNumber(org.overtimeMultiplier) },
+    {
+      overtimeMultiplier: toNumber(org.overtimeMultiplier),
+      statutory: org.statutorySettings,
+    },
   );
 
   const payable = preview.rows.filter((row) => row.computation.lines.length > 0);
@@ -1775,7 +1875,10 @@ export async function recalculatePayrollDraftAction(formData: FormData) {
     const preview = await previewPayroll(
       org.id,
       { start: period.periodStart, end: period.periodEnd },
-      { overtimeMultiplier: toNumber(org.overtimeMultiplier) },
+      {
+        overtimeMultiplier: toNumber(org.overtimeMultiplier),
+        statutory: org.statutorySettings,
+      },
       tx,
     );
     const rows = preview.rows.filter((row) => row.computation.lines.length > 0);

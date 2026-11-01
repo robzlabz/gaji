@@ -1,4 +1,5 @@
 import { relations, sql } from "drizzle-orm";
+import type { StatutoryResult, StatutorySettings } from "@/lib/statutory";
 import {
   bigserial,
   boolean,
@@ -111,6 +112,12 @@ export const organizations = pgTable("organizations", {
     .default("1.00"),
   /** Ambang notifikasi kontrak akan berakhir (hari). */
   contractAlertDays: smallint("contract_alert_days").notNull().default(60),
+  /**
+   * Tarif & batas upah iuran BPJS (JSON). Null = pakai `DEFAULT_STATUTORY_SETTINGS`
+   * di `src/lib/statutory.ts`. Dibaca saat payroll dihitung lalu **disalin** ke slip,
+   * jadi mengubah tarif tidak mengubah slip lama.
+   */
+  statutorySettings: jsonb("statutory_settings").$type<Partial<StatutorySettings> | null>(),
   geofenceLat: doublePrecision("geofence_lat"),
   geofenceLng: doublePrecision("geofence_lng"),
   geofenceRadiusM: integer("geofence_radius_m"),
@@ -164,6 +171,17 @@ export const employees = pgTable(
     joinedAt: date("joined_at").notNull(),
     endedAt: date("ended_at"),
     isActive: boolean("is_active").notNull().default(true),
+    /**
+     * Status PTKP untuk PPh 21 (TK/0–K/3). Null = belum diisi, dan karyawan
+     * **tidak** dipotong PPh 21 (default aman) sampai admin mengisinya.
+     */
+    ptkpStatus: text("ptkp_status"),
+    /** NPWP 15/16 digit. Kosong = tarif PPh 21 tanpa NPWP (+20%). */
+    npwp: text("npwp"),
+    /** Peserta BPJS Kesehatan (iuran karyawan ikut dipotong di slip). */
+    bpjsKesehatan: boolean("bpjs_kesehatan").notNull().default(false),
+    /** Peserta BPJS Ketenagakerjaan: JHT, JP, JKK, JKM. */
+    bpjsKetenagakerjaan: boolean("bpjs_ketenagakerjaan").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -552,6 +570,21 @@ export const payslips = pgTable(
       .default("0"),
     /** Bagian bruto yang sudah dibayar lewat saldo prabayar (snapshot saat payroll dihitung). */
     saldoCovered: numeric("saldo_covered", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** Potongan PPh 21 periode ini (sudah termasuk di `total_deductions`). */
+    pph21: numeric("pph21", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** Iuran BPJS yang dipotong dari karyawan: Kesehatan + JHT + JP. */
+    bpjsEmployee: numeric("bpjs_employee", { precision: 14, scale: 2 }).notNull().default("0"),
+    /**
+     * Iuran BPJS yang ditanggung perusahaan (Kesehatan + JHT + JP + JKK + JKM).
+     * Hanya informasi — tidak pernah mengurangi `net`.
+     */
+    bpjsEmployer: numeric("bpjs_employer", { precision: 14, scale: 2 }).notNull().default("0"),
+    /**
+     * Snapshot perhitungan PPh 21 & BPJS saat slip dibuat: tarif yang dipakai,
+     * PTKP, PKP, rincian iuran, dan peringatan data yang belum lengkap. Nilai ini
+     * beku, jadi perubahan tarif di pengaturan tidak mengubah slip yang sudah ada.
+     */
+    statutory: jsonb("statutory").$type<StatutoryResult | null>(),
     net: numeric("net", { precision: 14, scale: 2 }).notNull().default("0"),
     status: text("status").notNull().default("draft"),
     paidAt: timestamp("paid_at", { withTimezone: true }),

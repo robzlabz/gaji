@@ -65,9 +65,14 @@ export default async function EmployeeEstimatePage() {
       joinedAt: employee.joinedAt,
       endedAt: employee.endedAt,
       isActive: employee.isActive,
+      ptkpStatus: employee.ptkpStatus,
+      npwp: employee.npwp,
+      bpjsKesehatan: employee.bpjsKesehatan,
+      bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan,
     },
     period,
     overtimeMultiplier: toNumber(org.overtimeMultiplier),
+    statutorySettings: org.statutorySettings,
   });
 
   const { approved, potential, counts } = estimate;

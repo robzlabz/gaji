@@ -5,6 +5,7 @@ import { FormField, SelectInput } from "@/components/form-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { JKK_RISK_CLASSES, resolveStatutorySettings } from "@/lib/statutory";
 
 export default async function SettingsPage({
   searchParams,
@@ -13,6 +14,8 @@ export default async function SettingsPage({
 }) {
   const { org, user } = await requireAdmin();
   const { ok, err } = await searchParams;
+  // Tarif yang berlaku sekarang: JSON organisasi digabung dengan default di kode.
+  const statutory = resolveStatutorySettings(org.statutorySettings);
 
   return (
     <>
@@ -121,6 +124,122 @@ export default async function SettingsPage({
                 defaultValue={org.geofenceRadiusM ?? ""}
               />
             </FormField>
+            <div className="border-t pt-3">
+              <p className="text-sm font-medium">PPh 21 &amp; BPJS</p>
+              <p className="text-xs text-muted-foreground">
+                Tarif iuran yang dipakai saat payroll dihitung. Tarif PPh 21 mengikuti UU HPP
+                (5/15/25/30/35%) dengan biaya jabatan 5% maksimal Rp6 jt setahun, jadi yang bisa
+                diatur di sini hanya tarif &amp; batas upah iuran BPJS. Nilai yang sudah terpakai
+                tersimpan di slip, jadi mengubah tarif tidak mengubah slip lama.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="BPJS Kesehatan — karyawan (%)" hint="Default 1%.">
+                <Input
+                  name="bpjsKesehatanEmployeePct"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={100}
+                  defaultValue={statutory.kesehatan.employeePct}
+                />
+              </FormField>
+              <FormField label="BPJS Kesehatan — perusahaan (%)" hint="Default 4%.">
+                <Input
+                  name="bpjsKesehatanEmployerPct"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={100}
+                  defaultValue={statutory.kesehatan.employerPct}
+                />
+              </FormField>
+              <FormField
+                label="BPJS Kesehatan — batas upah (Rp)"
+                hint="Dasar iuran dibatasi angka ini. Kosong = tanpa batas."
+              >
+                <Input
+                  name="bpjsKesehatanWageCap"
+                  type="number"
+                  min={0}
+                  defaultValue={statutory.kesehatan.wageCap ?? ""}
+                />
+              </FormField>
+              <div className="hidden sm:block" />
+              <FormField label="JHT — karyawan (%)" hint="Default 2%.">
+                <Input
+                  name="bpjsJhtEmployeePct"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={100}
+                  defaultValue={statutory.jht.employeePct}
+                />
+              </FormField>
+              <FormField label="JHT — perusahaan (%)" hint="Default 3,7%.">
+                <Input
+                  name="bpjsJhtEmployerPct"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={100}
+                  defaultValue={statutory.jht.employerPct}
+                />
+              </FormField>
+              <FormField label="JP — karyawan (%)" hint="Default 1%.">
+                <Input
+                  name="bpjsJpEmployeePct"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={100}
+                  defaultValue={statutory.jp.employeePct}
+                />
+              </FormField>
+              <FormField label="JP — perusahaan (%)" hint="Default 2%.">
+                <Input
+                  name="bpjsJpEmployerPct"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={100}
+                  defaultValue={statutory.jp.employerPct}
+                />
+              </FormField>
+              <FormField
+                label="JP — batas upah (Rp)"
+                hint="Batas upah JP di atas tidak ada iurannya. Kosong = tanpa batas."
+              >
+                <Input
+                  name="bpjsJpWageCap"
+                  type="number"
+                  min={0}
+                  defaultValue={statutory.jp.wageCap ?? ""}
+                />
+              </FormField>
+              <FormField
+                label="JKK — kelas risiko"
+                hint="Iuran ditanggung perusahaan; menentukan tarif JKK otomatis."
+              >
+                <SelectInput name="bpjsJkkRiskClass" defaultValue={statutory.jkk.riskClass}>
+                  {JKK_RISK_CLASSES.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              </FormField>
+              <FormField label="JKM — perusahaan (%)" hint="Default 0,3%.">
+                <Input
+                  name="bpjsJkmEmployerPct"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={100}
+                  defaultValue={statutory.jkm.employerPct}
+                />
+              </FormField>
+            </div>
             <div>
               <Button type="submit">Simpan pengaturan</Button>
             </div>
