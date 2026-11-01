@@ -34,6 +34,7 @@ import {
   transferAdvanceToSaldo,
 } from "@/lib/saldo-server";
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
+import { isPayoutEligible, maskAccountNumber, validateBankAccount } from "@/lib/payout";
 import { audit } from "@/lib/audit";
 import { requireOrgEmployee } from "@/lib/org-employee";
 import { previewPayroll, type PayrollRow } from "@/lib/payroll-run";
@@ -69,6 +70,41 @@ function optionalNumber(fd: FormData, key: string): number | null {
   if (value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Rekening karyawan bersifat opsional: ketiga kolom kosong = gaji tunai (tanpa rekening),
+ * jadi tidak masuk berkas transfer. Tetapi kalau salah satu diisi, ketiganya wajib lengkap
+ * dan valid — aturannya sama dengan yang dipakai saat menyusun berkas (`src/lib/payout.ts`),
+ * supaya data yang lolos di form tidak tiba-tiba gagal saat transfer.
+ */
+type BankFieldsResult =
+  | {
+      ok: true;
+      bankCode: string | null;
+      bankAccountNumber: string | null;
+      bankAccountName: string | null;
+    }
+  | { ok: false; reason: string };
+
+function parseBankFields(fd: FormData): BankFieldsResult {
+  const bankCode = optionalStr(fd, "bankCode");
+  const bankAccountNumber = optionalStr(fd, "bankAccountNumber");
+  const bankAccountName = optionalStr(fd, "bankAccountName");
+
+  if (!bankCode && !bankAccountNumber && !bankAccountName) {
+    return { ok: true, bankCode: null, bankAccountNumber: null, bankAccountName: null };
+  }
+
+  const check = validateBankAccount({ bankCode, accountNumber: bankAccountNumber, accountName: bankAccountName });
+  if (!check.ok) return { ok: false, reason: check.reason };
+
+  return {
+    ok: true,
+    bankCode: check.bankCode,
+    bankAccountNumber: check.accountNumber,
+    bankAccountName: check.accountName,
+  };
 }
 
 function flash(path: string, params: Record<string, string>): never {
@@ -163,11 +199,13 @@ export async function createEmployeeAction(formData: FormData) {
   const transportRate = Math.max(0, parseMoneyInput(formData.get("transportRate")));
   const joinedAt = str(formData, "joinedAt") || new Date().toISOString().slice(0, 10);
   const createLogin = str(formData, "createLogin") === "on";
+  const bank = parseBankFields(formData);
 
   if (!fullName) fail(backTo, "Nama karyawan wajib diisi.");
   if (!["hourly", "daily", "monthly", "per_task"].includes(payType))
     fail(backTo, "Tipe penggajian tidak valid.");
   if (payRate <= 0) fail(backTo, "Tarif harus lebih dari 0.");
+  if (!bank.ok) fail(backTo, bank.reason);
 
   let userId: string | null = null;
 
@@ -194,6 +232,9 @@ export async function createEmployeeAction(formData: FormData) {
       payRate: payRate.toString(),
       transportRate: transportRate.toString(),
       joinedAt,
+      bankCode: bank.bankCode,
+      bankAccountNumber: bank.bankAccountNumber,
+      bankAccountName: bank.bankAccountName,
     })
     .returning();
 
@@ -230,7 +271,14 @@ export async function createEmployeeAction(formData: FormData) {
     entity: "employees",
     entityId: employee.id,
     action: "create",
-    diff: { fullName, payType, payRate, transportRate },
+    diff: {
+      fullName,
+      payType,
+      payRate,
+      transportRate,
+      bankCode: bank.bankCode,
+      bankAccountNumber: maskAccountNumber(bank.bankAccountNumber),
+    },
   });
 
   revalidatePath("/admin/karyawan");
@@ -262,6 +310,24 @@ export async function updateEmployeeAction(formData: FormData) {
     optionalStr(formData, "endedAt") ??
     (!isActive ? current.endedAt ?? localDateString(new Date(), org.timezone) : null);
 
+  // Rekening hanya disentuh bila form memang mengirim kolomnya, supaya update dari
+  // form lain (mis. hanya mengubah status) tidak menghapus rekening yang sudah ada.
+  const hasBankFields = formData.get("bankCode") !== null;
+  const bank = hasBankFields ? parseBankFields(formData) : null;
+  if (bank && !bank.ok) fail(backTo, bank.reason);
+
+  const bankValues = bank?.ok
+    ? {
+        bankCode: bank.bankCode,
+        bankAccountNumber: bank.bankAccountNumber,
+        bankAccountName: bank.bankAccountName,
+      }
+    : null;
+  const bankChanged =
+    bankValues !== null &&
+    (bankValues.bankCode !== current.bankCode ||
+      bankValues.bankAccountNumber !== current.bankAccountNumber ||
+      bankValues.bankAccountName !== current.bankAccountName);
 
   const rateChanged =
     payType !== current.payType || payRate !== toNumber(current.payRate);
@@ -283,6 +349,7 @@ export async function updateEmployeeAction(formData: FormData) {
         transportRate: transportRate.toString(),
         isActive,
         endedAt,
+        ...(bankValues ?? {}),
       })
       .where(and(eq(employees.id, employeeId), eq(employees.orgId, org.id)));
 
@@ -351,7 +418,16 @@ export async function updateEmployeeAction(formData: FormData) {
     entity: "employees",
     entityId: employeeId,
     action: "update",
-    diff: { payType, payRate, rateChanged, transportRate, transportChanged },
+    diff: {
+      payType,
+      payRate,
+      rateChanged,
+      transportRate,
+      transportChanged,
+      ...(bankChanged
+        ? { bankCode: bankValues?.bankCode, bankAccountNumber: maskAccountNumber(bankValues?.bankAccountNumber) }
+        : {}),
+    },
   });
 
   revalidatePath(`/admin/karyawan/${employeeId}`);
@@ -1865,6 +1941,64 @@ export async function updatePayPeriodStatusAction(formData: FormData) {
 
   revalidatePath(`/admin/payroll/${periodId}`);
   ok(`/admin/payroll/${periodId}`, `Status periode: ${nextStatus}.`);
+}
+
+/**
+ * Tandai satu slip sudah ditransfer ke rekening karyawan.
+ *
+ * Idempoten: syarat `transferred_at is null` ditaruh di dalam UPDATE, jadi klik kedua
+ * (atau dua admin menekan bersamaan) tidak mengubah data dan tidak menulis audit baru.
+ * Transfer dicatat per slip karena pencairan bisa dicicil/ditunda per karyawan.
+ */
+export async function markSlipTransferredAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const slipId = str(formData, "slipId");
+  const backTo = adminPath(formData, "backTo", "/admin/payroll");
+
+  const [slip] = await db
+    .select({
+      id: payslips.id,
+      status: payslips.status,
+      net: payslips.net,
+      payPeriodId: payslips.payPeriodId,
+      transferredAt: payslips.transferredAt,
+    })
+    .from(payslips)
+    .where(and(eq(payslips.id, slipId), eq(payslips.orgId, org.id)))
+    .limit(1);
+
+  if (!slip) fail(backTo, "Slip tidak ditemukan.");
+
+  const periodPath = `/admin/payroll/${slip.payPeriodId}`;
+
+  if (!isPayoutEligible(slip.status))
+    fail(backTo, "Slip ini belum difinalkan, jadi belum bisa ditandai ditransfer.");
+  if (slip.transferredAt) ok(periodPath, "Slip ini sudah ditandai ditransfer sebelumnya.");
+
+  const changed = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(payslips)
+      .set({ transferredAt: new Date(), transferredBy: user.id })
+      .where(
+        and(eq(payslips.id, slipId), eq(payslips.orgId, org.id), isNull(payslips.transferredAt)),
+      )
+      .returning({ id: payslips.id });
+    return rows.length > 0;
+  });
+
+  if (!changed) ok(periodPath, "Slip ini sudah ditandai ditransfer sebelumnya.");
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "payslips",
+    entityId: slipId,
+    action: "transfer",
+    diff: { payPeriodId: slip.payPeriodId, net: toNumber(slip.net) },
+  });
+
+  revalidatePath(periodPath);
+  ok(periodPath, "Slip ditandai sudah ditransfer.");
 }
 
 export async function deletePayrollDraftAction(formData: FormData) {

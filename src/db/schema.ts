@@ -164,6 +164,14 @@ export const employees = pgTable(
     joinedAt: date("joined_at").notNull(),
     endedAt: date("ended_at"),
     isActive: boolean("is_active").notNull().default(true),
+    /**
+     * Rekening penerima gaji untuk berkas transfer.
+     * Semua opsional: karyawan yang belum punya rekening valid tetap bisa digaji
+     * tunai, tetapi tidak akan masuk berkas transfer (lihat `src/lib/payout.ts`).
+     */
+    bankCode: text("bank_code"),
+    bankAccountNumber: text("bank_account_number"),
+    bankAccountName: text("bank_account_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -555,6 +563,14 @@ export const payslips = pgTable(
     net: numeric("net", { precision: 14, scale: 2 }).notNull().default("0"),
     status: text("status").notNull().default("draft"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
+    /**
+     * Penanda "sudah ditransfer" per slip. Diisi sekali oleh admin setelah berkas
+     * transfer dieksekusi di aplikasi bank; menekan tombol lagi tidak mengubah apa pun
+     * (lihat `markSlipTransferredAction`). Tidak memakai `paid_at` karena itu milik
+     * status periode, sedangkan transfer bisa dicatat per slip.
+     */
+    transferredAt: timestamp("transferred_at", { withTimezone: true }),
+    transferredBy: uuid("transferred_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

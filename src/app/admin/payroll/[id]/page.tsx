@@ -4,7 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { employees, payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { deletePayrollDraftAction, recalculatePayrollDraftAction, updatePayPeriodStatusAction } from "../../actions";
+import { deletePayrollDraftAction, markSlipTransferredAction, recalculatePayrollDraftAction, updatePayPeriodStatusAction } from "../../actions";
 import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
@@ -20,8 +20,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { PAY_TYPE_LABEL, formatDateID, rupiah, toNumber } from "@/lib/format";
+import { PAY_TYPE_LABEL, formatDateID, formatDateTimeID, rupiah, toNumber } from "@/lib/format";
 import { isDeductionLine } from "@/lib/payroll";
+import { maskAccountNumber, bankLabel, isPayoutEligible, PAYOUT_FORMAT_CHOICES, PAYOUT_FORMATS, rowsForFormat, summarizeBatch } from "@/lib/payout";
+import { loadPayoutBatch } from "@/lib/payout-server";
 import { periodLabel } from "@/lib/period";
 
 export default async function PayrollDetailPage({
@@ -48,6 +50,10 @@ export default async function PayrollDetailPage({
       id: payslips.id,
       employeeId: payslips.employeeId,
       employeeName: employees.fullName,
+      employeeCode: employees.code,
+      bankCode: employees.bankCode,
+      bankAccountNumber: employees.bankAccountNumber,
+      bankAccountName: employees.bankAccountName,
       payType: payslips.payType,
       payRate: payslips.payRate,
       gross: payslips.gross,
@@ -55,6 +61,7 @@ export default async function PayrollDetailPage({
       saldoCovered: payslips.saldoCovered,
       net: payslips.net,
       status: payslips.status,
+      transferredAt: payslips.transferredAt,
     })
     .from(payslips)
     .innerJoin(employees, eq(payslips.employeeId, employees.id))
@@ -79,6 +86,13 @@ export default async function PayrollDetailPage({
   const totalNet = slips.reduce((sum, slip) => sum + toNumber(slip.net), 0);
   const totalSaldo = slips.reduce((sum, slip) => sum + toNumber(slip.saldoCovered), 0);
 
+  // Berkas transfer memakai fungsi yang sama dengan route unduhan, jadi daftar gagal
+  // di layar identik dengan isi berkas.
+  const payout = await loadPayoutBatch(org.id, period);
+  const payoutSummary = summarizeBatch(payout);
+  const transferRowsByEmployee = new Map(payout.rows.map((row) => [row.employeeId, row]));
+  const formatLabel = new Map(PAYOUT_FORMAT_CHOICES.map((choice) => [choice.value, choice.label]));
+
   return (
     <>
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -98,6 +112,12 @@ export default async function PayrollDetailPage({
           <Button asChild variant="outline">
             <a href={`/admin/payroll/${period.id}/export`}>Unduh CSV</a>
           </Button>
+
+          {payout.rows.length > 0 && (
+            <Button asChild variant="outline">
+              <a href={`/admin/payroll/${period.id}/transfer?format=generic`}>Berkas transfer</a>
+            </Button>
+          )}
 
           <StatusBadge
             tone={
@@ -172,6 +192,93 @@ export default async function PayrollDetailPage({
         <StatCard label="Total net" value={rupiah(totalNet)} hint="yang dibayarkan" />
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Berkas transfer</CardTitle>
+          <CardDescription>
+            {payoutSummary.rowCount} penerima · {rupiah(payoutSummary.total)} siap ditransfer.
+            {payoutSummary.transferredCount > 0
+              ? ` ${payoutSummary.transferredCount} sudah ditandai ditransfer.`
+              : ""}{" "}
+            Hanya slip yang sudah difinalkan dan punya rekening valid yang masuk berkas. Berkas per
+            bank hanya memuat rekening bank itu; format generik memuat semua bank.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {PAYOUT_FORMATS.map((format) => {
+            const rows = rowsForFormat(payout, format);
+            const total = rows.reduce((sum, row) => sum + row.amount, 0);
+            const label = formatLabel.get(format) ?? format;
+            return (
+              <div key={format} className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{label}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {rows.length} penerima · {rupiah(total)}
+                  </p>
+                </div>
+                {rows.length > 0 ? (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={`/admin/payroll/${period.id}/transfer?format=${format}`}>
+                      Unduh {format === "generic" ? "generik" : format.toUpperCase()}
+                    </a>
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted-foreground">belum ada penerima</span>
+                )}
+              </div>
+            );
+          })}
+          <p className="text-xs text-muted-foreground">
+            Nama berkas memuat periode dan tanggal ekspor. Baris terakhir selalu baris kontrol{" "}
+            <span className="font-mono">TOTAL,&lt;jumlah penerima&gt;,&lt;jumlah nominal&gt;</span>{" "}
+            supaya total bisa dicocokkan dengan rekap di atas.
+          </p>
+        </CardContent>
+      </Card>
+
+      {payout.failures.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Tidak ikut transfer ({payout.failures.length})</CardTitle>
+            <CardDescription>
+              Slip berikut sudah difinalkan tetapi tidak bisa ditransfer. Lengkapi rekeningnya di
+              data karyawan, lalu unduh berkasnya lagi — slip yang sama tidak akan dobel.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Karyawan</TableHead>
+                  <TableHead className="text-right">Nominal</TableHead>
+                  <TableHead>Alasan</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {payout.failures.map((failure) => (
+                  <TableRow key={failure.slipId}>
+                    <TableCell>
+                      <Link href={`/admin/karyawan/${failure.employeeId}`} className="hover:underline">
+                        {failure.employeeName}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{rupiah(failure.amount)}</TableCell>
+                    <TableCell className="text-xs text-destructive">{failure.reason}</TableCell>
+                    <TableCell className="text-right">
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/admin/karyawan/${failure.employeeId}?tab=akun`}>Isi rekening</Link>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
       {totalSaldo > 0 && (
         <Card>
           <CardHeader>
@@ -211,11 +318,31 @@ export default async function PayrollDetailPage({
                       <CardDescription>
                         {PAY_TYPE_LABEL[slip.payType]} · tarif {rupiah(toNumber(slip.payRate))}
                       </CardDescription>
-                      <Button asChild variant="outline" size="sm" className="mt-2">
-                        <Link href={`/admin/payroll/${period.id}/slip/${slip.employeeId}`}>
-                          Cetak slip
-                        </Link>
-                      </Button>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {slip.bankCode && slip.bankAccountNumber
+                          ? `${bankLabel(slip.bankCode)} ${maskAccountNumber(slip.bankAccountNumber)} a.n. ${slip.bankAccountName ?? "-"}`
+                          : "Rekening belum diisi — slip ini tidak ikut berkas transfer."}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/admin/payroll/${period.id}/slip/${slip.employeeId}`}>
+                            Cetak slip
+                          </Link>
+                        </Button>
+                        {slip.transferredAt ? (
+                          <span className="text-xs text-muted-foreground">
+                            sudah ditransfer {formatDateTimeID(slip.transferredAt)}
+                          </span>
+                        ) : isPayoutEligible(slip.status) && transferRowsByEmployee.has(slip.employeeId) ? (
+                          <form action={markSlipTransferredAction}>
+                            <input type="hidden" name="slipId" value={slip.id} />
+                            <input type="hidden" name="backTo" value={`/admin/payroll/${period.id}`} />
+                            <Button type="submit" variant="outline" size="sm">
+                              Tandai sudah ditransfer
+                            </Button>
+                          </form>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold tabular-nums">{rupiah(toNumber(slip.net))}</p>

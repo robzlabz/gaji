@@ -52,6 +52,7 @@ import {
   toNumber,
 } from "@/lib/format";
 import { workedMinutes } from "@/lib/payroll";
+import { BANK_OPTIONS } from "@/lib/payout";
 import { leaveKindLabel, leavePaidLabel, leaveStatusTone } from "@/lib/leave";
 
 const PAY_TYPE_OPTIONS = [
@@ -253,6 +254,35 @@ export default async function EmployeeDetailPage({
                 name="transportRate"
                 inputMode="numeric"
                 defaultValue={Math.round(toNumber(employee.transportRate))}
+              />
+            </FormField>
+            <Separator />
+            <p className="text-xs font-medium text-muted-foreground">
+              Rekening transfer (opsional)
+            </p>
+            <FormField label="Bank" hint="Kosongkan bila gaji dibayar tunai">
+              <SelectInput name="bankCode" defaultValue={employee.bankCode ?? ""}>
+                <option value="">— tanpa rekening —</option>
+                {BANK_OPTIONS.map((bank) => (
+                  <option key={bank.code} value={bank.code}>
+                    {bank.label}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Nomor rekening" hint="Angka saja, 6–20 digit">
+              <Input
+                name="bankAccountNumber"
+                inputMode="numeric"
+                defaultValue={employee.bankAccountNumber ?? ""}
+                autoComplete="off"
+              />
+            </FormField>
+            <FormField label="Nama pemilik rekening" hint="Sesuai buku tabungan">
+              <Input
+                name="bankAccountName"
+                defaultValue={employee.bankAccountName ?? ""}
+                autoComplete="off"
               />
             </FormField>
             <FormField
