@@ -95,6 +95,8 @@ Akun ini hanya untuk data demo lokal. Jangan gunakan kredensial tersebut di ling
 | `npm run db:generate` | Buat migrasi SQL di direktori `drizzle/`. |
 | `npm run db:studio` | Buka Drizzle Studio. |
 | `npm run db:seed` | Reset dan isi organisasi serta data demo. |
+| `npm run db:backup -- <dir>` | Dump skema + seluruh data ke direktori backup (tanpa `pg_dump`). |
+| `npm run db:restore -- <dir>` | Pulihkan backup ke database kosong, lalu verifikasi hash isinya. |
 | `npm run mcp` | Jalankan server MCP read-only melalui stdio. |
 | `npm run mcp:smoke` | Jalankan pemeriksaan tool MCP melalui stdio. |
 | `npm run mcp:smoke:http` | Periksa endpoint MCP Streamable HTTP. |
@@ -138,6 +140,24 @@ src/
 - Kontrak aktif memperbarui upah karyawan dan mencatat perubahan di `pay_rate_history`.
 
 ## Deployment
+
+### Backup sebelum migrasi
+
+Migrasi berjalan otomatis saat container start, jadi ambil backup dulu setiap kali ada migrasi baru:
+
+```bash
+DATABASE_URL="postgres://..." npm run db:backup -- .backup/2026-11-01
+```
+
+Hasilnya satu direktori berisi `manifest.json` (jumlah baris + hash tiap tabel), `schema.json` (DDL), dan `data/*.ndjson`. Skrip ini tidak butuh `pg_dump`, hanya koneksi database.
+
+Untuk memastikan backup benar-benar bisa dipulihkan, uji dulu ke database kosong — skrip restore memverifikasi ulang jumlah baris dan hash isinya:
+
+```bash
+DATABASE_URL="postgres://.../db-uji" npm run db:restore -- .backup/2026-11-01
+```
+
+Restore menolak menimpa database yang sudah berisi tabel kecuali diberi `--force`.
 
 Aplikasi produksi dijalankan melalui Easypanel. Service menggunakan `Dockerfile` di repo ini, berjalan di port `3000`, dan menerapkan migrasi database saat container dimulai sebelum menjalankan server Next.js.
 
