@@ -4,6 +4,7 @@ import { ShieldCheckIcon, UserRoundIcon } from "lucide-react";
 import { getSession } from "@/lib/session";
 import { findCountry } from "@/lib/countries";
 import { formatPhoneDisplay } from "@/lib/format";
+import { safeInternalPath } from "@/lib/nav";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { findLoginAccount } from "../actions";
@@ -28,6 +29,9 @@ export default async function LoginPinPage({
 
   const { phone, c, next } = await searchParams;
   if (!phone) redirect("/login");
+  // Nilai ini berasal dari URL dan akan dipakai sebagai tujuan redirect setelah
+  // PIN benar — bersihkan di server, jangan hanya mengandalkan cek di klien.
+  const safeNext = safeInternalPath(next, "");
 
   const country = findCountry(c ?? "ID");
   const account = await findLoginAccount(phone, country.dial);
@@ -66,7 +70,7 @@ export default async function LoginPinPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <PinForm phone={account.phone} next={next} />
+            <PinForm phone={account.phone} next={safeNext || undefined} />
           </CardContent>
         </Card>
 

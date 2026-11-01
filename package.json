@@ -16,7 +16,8 @@
     "mcp": "tsx mcp/server.ts",
     "mcp:smoke": "tsx mcp/smoke.ts",
     "mcp:smoke:http": "tsx --env-file=.env mcp/smoke-http.ts",
-    "mcp:key": "tsx --env-file=.env scripts/mcp-key.ts"
+    "mcp:key": "tsx --env-file=.env scripts/mcp-key.ts",
+    "check:nav": "tsx scripts/check-nav.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
