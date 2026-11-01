@@ -11,6 +11,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx --env-file=.env src/db/seed.ts",
+    "db:backup": "tsx scripts/db-backup.ts",
+    "db:restore": "tsx scripts/db-restore.ts",
     "check:cuti": "tsx scripts/check-cuti-payroll.ts",
     "check:saldo": "tsx scripts/check-saldo.ts",
     "mcp": "tsx mcp/server.ts",
