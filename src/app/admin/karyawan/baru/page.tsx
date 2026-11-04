@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { localDateString } from "@/lib/format";
+import { BANK_OPTIONS } from "@/lib/payout";
 
 export const metadata = { title: "Tambah karyawan — Gaji" };
 
@@ -67,6 +68,39 @@ export default async function NewEmployeePage({
               hint="Opsional. Diisi karyawan saat clock in (mis. 10000 untuk yang datang dari jauh). Kosongkan bila tidak ada."
             >
               <Input name="transportRate" inputMode="numeric" placeholder="0" />
+            </FormField>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Rekening transfer (opsional)</CardTitle>
+            <CardDescription>
+              Dipakai untuk menyusun berkas transfer payroll. Kosongkan bila gaji dibayar tunai —
+              karyawan tanpa rekening valid tetap digaji, tetapi tidak ikut di berkas transfer.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <FormField label="Bank">
+              <SelectInput name="bankCode" defaultValue="">
+                <option value="">— tanpa rekening —</option>
+                {BANK_OPTIONS.map((bank) => (
+                  <option key={bank.code} value={bank.code}>
+                    {bank.label}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField label="Nomor rekening" hint="Angka saja, 6–20 digit">
+              <Input
+                name="bankAccountNumber"
+                inputMode="numeric"
+                placeholder="1234567890"
+                autoComplete="off"
+              />
+            </FormField>
+            <FormField label="Nama pemilik rekening" hint="Sesuai buku tabungan, huruf">
+              <Input name="bankAccountName" placeholder="Budi Santoso" autoComplete="off" />
             </FormField>
           </CardContent>
         </Card>
