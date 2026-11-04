@@ -8,6 +8,7 @@ import { db } from "@/db";
 import {
   cashAdvanceTxns,
   cashAdvances,
+  contractSignatures,
   contracts,
   employees,
   leaves,
@@ -35,6 +36,12 @@ import {
 } from "@/lib/saldo-server";
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { audit } from "@/lib/audit";
+import {
+  createSignToken,
+  effectiveSignatureStatus,
+  signatureExpiry,
+} from "@/lib/esign";
+import { findSignatureForContract } from "@/lib/esign-contract";
 import { requireOrgEmployee } from "@/lib/org-employee";
 import { previewPayroll, type PayrollRow } from "@/lib/payroll-run";
 import { ORG_COOKIE, requireAdmin } from "@/lib/session";
@@ -604,6 +611,104 @@ export async function terminateContractAction(formData: FormData) {
 
   revalidatePath("/admin/kontrak");
   ok(backTo, "Kontrak diakhiri.");
+}
+
+/* ------------------------ tanda tangan kontrak ------------------------ */
+
+/**
+ * Kirim tautan tanda tangan atau tautkan ulang.
+ *
+ * Satu kontrak hanya perlu satu tautan aktif. Bila tautan lama masih berlaku,
+ * token diganti dan tenggat diperpanjang (tautan lama langsung mati). Bila tautan
+ * lama sudah kedaluwarsa/dicabut, baris baru dibuat supaya riwayat pencabutan tetap
+ * tersimpan sebagai bukti.
+ */
+export async function sendSignatureLinkAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const contractId = str(formData, "contractId");
+  const backTo = adminPath(formData, "backTo", `/admin/kontrak/${contractId}`);
+
+  const [contract] = await db
+    .select({ id: contracts.id })
+    .from(contracts)
+    .where(and(eq(contracts.id, contractId), eq(contracts.orgId, org.id)))
+    .limit(1);
+
+  if (!contract) fail("/admin/kontrak", "Kontrak tidak ditemukan.");
+
+  const existing = await findSignatureForContract(org.id, contractId);
+  const now = new Date();
+  const state = existing ? effectiveSignatureStatus(existing, now) : null;
+
+  if (state === "signed") fail(backTo, "Kontrak ini sudah ditandatangani, tautan tidak diperlukan lagi.");
+
+  const token = createSignToken();
+  const expiresAt = signatureExpiry(now);
+
+  if (existing && state === "sent") {
+    await db
+      .update(contractSignatures)
+      .set({ token, sentAt: now, expiresAt })
+      .where(and(eq(contractSignatures.id, existing.id), eq(contractSignatures.orgId, org.id)));
+  } else {
+    await db.insert(contractSignatures).values({
+      orgId: org.id,
+      contractId,
+      token,
+      status: "sent",
+      sentAt: now,
+      expiresAt,
+      createdBy: user.id,
+    });
+  }
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "contract_signatures",
+    entityId: contractId,
+    action: existing && state === "sent" ? "relink" : "send",
+    diff: { contractId, expiresAt: expiresAt.toISOString() },
+  });
+
+  revalidatePath(`/admin/kontrak/${contractId}`);
+  ok(backTo, "Tautan tanda tangan siap dibagikan (berlaku 14 hari).");
+}
+
+/** Cabut tautan yang belum ditandatangani. Kontrak yang sudah ditandatangani tidak bisa dicabut. */
+export async function revokeSignatureLinkAction(formData: FormData) {
+  const { org, user } = await requireAdmin();
+  const contractId = str(formData, "contractId");
+  const backTo = adminPath(formData, "backTo", `/admin/kontrak/${contractId}`);
+
+  const existing = await findSignatureForContract(org.id, contractId);
+  const now = new Date();
+
+  if (!existing) fail(backTo, "Belum ada tautan tanda tangan untuk kontrak ini.");
+
+  const state = effectiveSignatureStatus(existing, now);
+  if (state === "signed") fail(backTo, "Kontrak sudah ditandatangani; bukti tanda tangan tidak bisa dicabut.");
+  if (state !== "sent") fail(backTo, "Tautan ini sudah tidak aktif.");
+
+  const updated = await db
+    .update(contractSignatures)
+    .set({ status: "revoked", revokedAt: now })
+    .where(and(eq(contractSignatures.id, existing.id), eq(contractSignatures.orgId, org.id)))
+    .returning({ id: contractSignatures.id });
+
+  if (updated.length === 0) fail(backTo, "Tautan ini sudah tidak aktif.");
+
+  await audit({
+    orgId: org.id,
+    actorId: user.id,
+    entity: "contract_signatures",
+    entityId: existing.id,
+    action: "revoke",
+    diff: { contractId },
+  });
+
+  revalidatePath(`/admin/kontrak/${contractId}`);
+  ok(backTo, "Tautan tanda tangan dicabut.");
 }
 
 /* ------------------------------ absensi ------------------------------- */

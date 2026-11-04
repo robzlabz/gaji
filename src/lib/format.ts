@@ -129,6 +129,28 @@ export function formatDateTimeID(value: string | Date | null | undefined): strin
   }).format(d);
 }
 
+/**
+ * Tanggal + jam pada zona waktu tertentu (mis. "01 Nov 2026, 14.05 WIB").
+ * Dipakai bukti tanda tangan, yang zona waktunya mengikuti pengaturan organisasi.
+ */
+export function formatDateTimeZoned(
+  value: string | Date | null | undefined,
+  timeZone = "Asia/Jakarta",
+): string {
+  if (!value) return "-";
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(d.getTime())) return "-";
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone,
+    timeZoneName: "short",
+  }).format(d);
+}
+
 export function formatTimeID(value: string | Date | null | undefined): string {
   if (!value) return "-";
   const d = typeof value === "string" ? new Date(value) : value;

@@ -227,6 +227,52 @@ export const contracts = pgTable(
   ],
 );
 
+/**
+ * Bukti tanda tangan elektronik sederhana per kontrak.
+ *
+ * Satu baris = satu tautan tanda tangan. Token disimpan apa adanya (bukan hash)
+ * karena admin perlu menampilkan/mengirim ulang tautan yang sama sebelum
+ * ditandatangani; setelah dipakai, token tidak bisa dipakai lagi (`status` jadi
+ * `signed`). Tautan tidak pernah membuka data lain selain ringkasan kontrak yang
+ * bersangkutan.
+ *
+ * `signatureHash` = SHA-256 ringkasan kontrak **pada saat** ditandatangani
+ * (lihat `@/lib/esign`). Bila kontrak diedit setelahnya, hash yang dihitung ulang
+ * tidak cocok dan UI menampilkan peringatan.
+ */
+export const contractSignatures = pgTable(
+  "contract_signatures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    contractId: uuid("contract_id")
+      .notNull()
+      .references(() => contracts.id, { onDelete: "cascade" }),
+    /** Token acak di URL publik `/sign/[token]`; hanya berlaku sekali. */
+    token: text("token").notNull(),
+    /** "sent" | "signed" | "expired" | "revoked" */
+    status: text("status").notNull().default("sent"),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    signedAt: timestamp("signed_at", { withTimezone: true }),
+    signerName: text("signer_name"),
+    signerIp: text("signer_ip"),
+    signerUserAgent: text("signer_user_agent"),
+    /** SHA-256 ringkasan kontrak saat ditandatangani (hex). */
+    signatureHash: text("signature_hash"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("contract_signatures_token_uniq").on(t.token),
+    index("contract_signatures_contract_idx").on(t.contractId, t.createdAt),
+    index("contract_signatures_org_idx").on(t.orgId, t.status),
+  ],
+);
+
 /* ------------------------------------------------------------------ */
 /* Absensi (dipakai untuk hourly & daily)                              */
 /* ------------------------------------------------------------------ */

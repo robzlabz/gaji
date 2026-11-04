@@ -1,10 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { contracts, employees } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
-import { terminateContractAction, updateContractAction } from "../../actions";
+import {
+  revokeSignatureLinkAction,
+  sendSignatureLinkAction,
+  terminateContractAction,
+  updateContractAction,
+} from "../../actions";
 import { Flash } from "@/components/flash";
 import { StatusBadge } from "@/components/status-badge";
 import { FormField, SelectInput } from "@/components/form-field";
@@ -16,13 +22,28 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { CONTRACT_KIND_OPTIONS, PAY_TYPE_OPTIONS } from "@/lib/contract-options";
 import {
+  contractChangedSinceSignature,
+  effectiveSignatureStatus,
+  SIGNATURE_STATUS_LABEL,
+  type SignatureStatus,
+} from "@/lib/esign";
+import { findSignatureForContract, summaryOf } from "@/lib/esign-contract";
+import {
   CONTRACT_KIND_LABEL,
   PAY_TYPE_LABEL,
   formatDateID,
+  formatDateTimeZoned,
   localDateString,
   rupiah,
   toNumber,
 } from "@/lib/format";
+
+const SIGNATURE_TONE: Record<SignatureStatus, "good" | "warn" | "bad" | "info"> = {
+  signed: "good",
+  sent: "info",
+  expired: "warn",
+  revoked: "bad",
+};
 
 /** Halaman tersendiri untuk mengubah satu kontrak (bukan modal, bukan form di daftar). */
 export default async function ContractDetailPage({
@@ -60,6 +81,21 @@ export default async function ContractDetailPage({
 
   if (!row) notFound();
 
+  const signature = await findSignatureForContract(org.id, row.id);
+  const signatureState = signature ? effectiveSignatureStatus(signature, new Date()) : null;
+  // Hash hanya ada setelah ditandatangani; perubahan sesudahnya = peringatan.
+  const contractChanged =
+    signatureState === "signed" &&
+    contractChangedSinceSignature(signature?.signatureHash, summaryOf(row, row.employeeName, org.name));
+
+  const headerStore = await headers();
+  const host = headerStore.get("host");
+  const protocol = headerStore.get("x-forwarded-proto") ?? "http";
+  const signUrl =
+    signature && signatureState === "sent" && host
+      ? `${protocol}://${host}/sign/${signature.token}`
+      : null;
+
   const today = localDateString(new Date(), org.timezone);
   const selfUrl = `/admin/kontrak/${row.id}`;
   const isActive = row.status === "active";
@@ -80,6 +116,14 @@ export default async function ContractDetailPage({
       </header>
 
       <Flash ok={ok} err={err} />
+
+      {contractChanged ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-300">
+          <strong className="font-semibold">Kontrak berubah setelah ditandatangani.</strong> Isi
+          kontrak saat ini tidak sama dengan isi yang disetujui penanda tangan (hash berbeda). Buat
+          kontrak baru atau minta tanda tangan ulang.
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -108,6 +152,100 @@ export default async function ContractDetailPage({
             </Link>
           ) : null}
           {!row.employeeActive ? <StatusBadge tone="warn">karyawan nonaktif</StatusBadge> : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tanda tangan elektronik</CardTitle>
+          <CardDescription>
+            Tautan publik untuk ditandatangani karyawan tanpa akun. Bukti yang disimpan: nama,
+            waktu, alamat IP, user agent, dan hash isi kontrak.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 text-sm">
+          {signature && signatureState ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={SIGNATURE_TONE[signatureState]}>
+                  {SIGNATURE_STATUS_LABEL[signatureState]}
+                </StatusBadge>
+                {signatureState === "signed" ? (
+                  <span className="text-muted-foreground">
+                    {signature.signerName} ·{" "}
+                    {formatDateTimeZoned(signature.signedAt, org.timezone)}
+                  </span>
+                ) : signatureState === "sent" ? (
+                  <span className="text-muted-foreground">
+                    berlaku sampai {formatDateTimeZoned(signature.expiresAt, org.timezone)}
+                  </span>
+                ) : signatureState === "revoked" ? (
+                  <span className="text-muted-foreground">
+                    dicabut {formatDateTimeZoned(signature.revokedAt, org.timezone)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    lewat tenggat {formatDateTimeZoned(signature.expiresAt, org.timezone)}
+                  </span>
+                )}
+              </div>
+
+              {signUrl ? (
+                <FormField
+                  label="Tautan tanda tangan"
+                  hint="Kirim ke karyawan. Sekali pakai, berlaku 14 hari sejak dibuat."
+                >
+                  <Input readOnly value={signUrl} className="font-mono text-xs" />
+                </FormField>
+              ) : null}
+
+              {signatureState === "signed" ? (
+                <p className="text-xs text-muted-foreground">
+                  Hash saat ditandatangani:{" "}
+                  <span className="font-mono break-all">{signature.signatureHash}</span>
+                </p>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                {signatureState === "signed" ? (
+                  <Button asChild variant="outline">
+                    <Link href={`/admin/kontrak/${row.id}/bukti`}>Lihat bukti tanda tangan</Link>
+                  </Button>
+                ) : (
+                  <>
+                    <form action={sendSignatureLinkAction}>
+                      <input type="hidden" name="contractId" value={row.id} />
+                      <input type="hidden" name="backTo" value={selfUrl} />
+                      <Button type="submit" variant={signatureState === "sent" ? "outline" : "default"}>
+                        {signatureState === "sent" ? "Tautkan ulang" : "Kirim tautan tanda tangan"}
+                      </Button>
+                    </form>
+                    {signatureState === "sent" ? (
+                      <form action={revokeSignatureLinkAction}>
+                        <input type="hidden" name="contractId" value={row.id} />
+                        <input type="hidden" name="backTo" value={selfUrl} />
+                        <Button type="submit" variant="outline">
+                          Cabut tautan
+                        </Button>
+                      </form>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-muted-foreground">
+                Kontrak ini belum punya tanda tangan. Buat tautan, kirim ke karyawan, lalu simpan
+                buktinya.
+              </p>
+              <form action={sendSignatureLinkAction}>
+                <input type="hidden" name="contractId" value={row.id} />
+                <input type="hidden" name="backTo" value={selfUrl} />
+                <Button type="submit">Kirim tautan tanda tangan</Button>
+              </form>
+            </>
+          )}
         </CardContent>
       </Card>
 
