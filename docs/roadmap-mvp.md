@@ -103,6 +103,18 @@ MVP hanya boleh diumumkan kalau **kelima gate** ini hijau. Gate ini yang menggan
 | **G4 — Operasional** | Backup harian, rollback image, migrasi ber-lock, error terlihat | uji restore 1x + uji rollback 1x + error boundary terpasang |
 | **G5 — Pilot** | Satu org pilot menyelesaikan 1 periode penuh; slip direkonsiliasi manual | selisih = Rp 0 untuk seluruh karyawan pilot |
 
+### 4.1 Status gate per 5 November 2026
+
+| Gate | Status | Bukti |
+| --- | --- | --- |
+| **G1 — Rilis** | ✗ **merah, hari ke-10** | `tsc` gagal di `main` (1 error, `employee/page.tsx:110`); build gagal; CI 0 sukses dari 34 run (akun terkunci billing); 0 tag, 0 release |
+| **G2 — Uang** | ✗ **merah, cakupan bertambah** | `check:period` masih gagal (2976 kasus, #46); rilis harian 5× berturut-turut tertahan; tiga issue uang baru: #76, #91, #92 |
+| **G3 — Tenant & auth** | ✗ merah | #77 (reset PIN lintas tenant) terbuka; tes keamanan §6.3 belum ada |
+| **G4 — Operasional** | ✗ merah | journal migrasi desync (F11); **6 PR berebut nomor migrasi `0004`** (#91); backup/rollback belum teruji |
+| **G5 — Pilot** | belum bisa dinilai | bergantung G1–G4 |
+
+**Yang berubah sejak 31 Oktober: nol gate bertambah hijau.** Sebaliknya, cakupan pekerjaan bertambah jauh lebih cepat daripada kemampuan merilisnya — 7 PR fitur baru (~33.000 baris) menumpuk di atas `main` yang masih tidak bisa di-build. Itu pola yang berbahaya: makin banyak kode menunggu, makin mahal biaya merge dan makin besar peluang konflik. Satu perbaikan 6 baris (#71) menahan seluruh antrean ini selama 10 hari.
+
 ---
 
 ## 5. Roadmap per fase
@@ -292,14 +304,39 @@ I3 dan I4 sendirian akan menangkap #34, #35, #64, #66, dan bug `settle` di §3.3
 | Fase | Issue | Jumlah |
 | --- | --- | --- |
 | 0 | B1–B6 (temuan audit), PR build | 6 |
-| 1 | #29, #65, #58, F3, F4, F5, F9, F10 | 8 |
-| 2 | #69, #59, #46, #44 | 4 |
-| 3 | #26, #37, #55, #56, #57, #62, #63, #67, #68 | 9 |
-| 4 | #27, #34, #35, #61, #64, #66, settle cap, saldo snapshot | 8 |
+| 1 | #29, #58, F3, F4, F5, F9, F10 | 7 |
+| 2 | #69, #59, #46, #44, **#91** | 5 |
+| 3 | #26, #37, #55, #56, #57, #62, #63, #67, #68, **#92** | 10 |
+| 4 | #27, #34, #35, #61, #64, #66, **#76**, settle cap, saldo snapshot | 9 |
 | 5 | #28, #30, #60, #70, F6–F16 | 13 |
 | 6 | pilot & rekonsiliasi | — |
 
+**Temuan 5 Nov 2026:** #91 (tabrakan nomor migrasi) masuk Fase 2 karena menghalangi merge semua PR fitur. #92 (pembagi upah sejam) masuk Fase 3 bersama #55/#56 — ketiganya soal upah yang sama. #76 (pelunasan shortfall tak dibatasi) masuk Fase 4 bersama #34 karena keduanya hanya berbahaya bila digabung.
+
+#65 (open redirect) sudah ditutup di PR #75 — pindahkan ke kolom "sudah ada PR" di fase 1.
+
 Sisa issue terbuka yang tidak masuk tabel di atas adalah duplikat atau sudah diperbaiki di `main` (#36 sudah diperbaiki oleh `80c2c53`; #48, #49, #47, #45, #39, #38, #33, #31, #25, #23, #13, #7, #5 sudah tertutup).
+
+### 7.1 Urutan merge yang disarankan
+
+Antrean saat ini 12 PR terbuka. Urutan ini memaksimalkan yang bisa diverifikasi lebih dulu dan menghindari tabrakan migrasi:
+
+| Urut | PR | Alasan |
+| --- | --- | --- |
+| 1 | **#71** | 6 baris; membuka build, CI, dan rilis otomatis sekaligus |
+| 2 | #53 | menutup #46 → `check:period` hijau |
+| 3 | #72 | roadmap + `check:all` masuk `main` |
+| 4 | #73 | skrip rilis masuk `main` (berhenti mengambil manual dari branch) |
+| 5 | #75 | menutup #65, perubahan kecil & terisolasi |
+| 6 | #85 | lembur — **setelah** perbaikan tarif accrual di review saya |
+| 7 | #84 | payout, migrasi `0004_payout` |
+| 8 | #89 | pajak, migrasi `0005_*` setelah rebase |
+| 9 | #86 | THR, migrasi `0006_*` setelah rebase |
+| 10 | #87 | langganan |
+| 11 | #88 | e-sign |
+| 12 | #90 | backup |
+
+Mulai nomor 6, **setiap PR wajib di-rebase ke `main` dan `npm run db:generate` dijalankan ulang** sebelum merge, supaya nomor migrasi naik sendiri (lihat #91).
 
 ---
 
