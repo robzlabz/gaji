@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { PhoneForm } from "./phone-form";
 import { LoginSteps } from "./login-steps";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { safeInternalPath } from "@/lib/nav";
 
 export const metadata = { title: "Masuk — Gaji" };
 
@@ -22,6 +23,9 @@ export default async function LoginPage({
   if (session?.user) redirect("/");
 
   const { next } = await searchParams;
+  // `next` dipakai lagi di langkah PIN, jadi bersihkan sekali di sini: nilai
+  // seperti "//evil.com" akan lolos pengecekan awalan "/" bila tidak divalidasi.
+  const safeNext = safeInternalPath(next, "");
   const isDev = process.env.NODE_ENV !== "production";
 
   return (
@@ -48,7 +52,7 @@ export default async function LoginPage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <PhoneForm next={next} />
+            <PhoneForm next={safeNext || undefined} />
           </CardContent>
         </Card>
 

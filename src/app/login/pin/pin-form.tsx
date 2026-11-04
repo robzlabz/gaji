@@ -6,6 +6,7 @@ import { authClient } from "@/lib/auth-client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { safeInternalPath } from "@/lib/nav";
 import { resolveLoginGate } from "../actions";
 
 const PIN_LENGTH = 6;
@@ -143,7 +144,9 @@ export function PinForm({ phone, next }: { phone: string; next?: string }) {
       return;
     }
 
-    window.location.href = next && next.startsWith("/") ? next : gate.href;
+    // `next` datang dari query string. Awalan "/" saja tidak cukup: "//evil.com"
+    // dan "/\evil.com" adalah domain lain bagi browser.
+    window.location.href = safeInternalPath(next, gate.href);
   }
 
   return (
