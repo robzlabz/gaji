@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { payPeriods, payslipItems, payslips } from "@/db/schema";
 import { requireEmployee } from "@/lib/session";
 import { estimatePay } from "@/lib/estimate";
+import { overtimeSettingsFromOrg } from "@/lib/overtime";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { statusLabel } from "@/lib/labels";
@@ -31,7 +32,7 @@ export default async function EmployeePayslips() {
       isActive: employee.isActive,
     },
     period,
-    overtimeMultiplier: toNumber(org.overtimeMultiplier),
+    overtime: overtimeSettingsFromOrg(org),
   });
   const extraGross = Math.max(0, estimate.potential.gross - estimate.approved.gross);
 

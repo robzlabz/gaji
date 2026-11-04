@@ -18,6 +18,7 @@ import {
 } from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
 import { advanceLabel, isAdvanceEligible, resolveAdvanceDeduction } from "@/lib/kasbon";
+import type { OvertimeSettings } from "@/lib/overtime";
 import { balanceBefore, coverageForPeriod, periodLedgerSummary, rateAtDate } from "@/lib/saldo";
 import type { Period } from "@/lib/period";
 import { toNumber } from "@/lib/format";
@@ -75,7 +76,8 @@ const EMPTY_SUMMARY: AdvanceSummary = {
 export async function previewPayroll(
   orgId: string,
   period: Period,
-  settings: { overtimeMultiplier: number },
+  /** Pengaturan lembur organisasi: jam kerja normal/hari, hari kerja, dan pengali PP 35/2021. */
+  settings: OvertimeSettings,
   conn: Conn = db,
 ): Promise<PayrollPreview> {
   // Masa kerja beririsan dengan periode: batas `endedAt` berlaku untuk semua karyawan,
@@ -367,7 +369,7 @@ export async function previewPayroll(
       joinedAt: employee.joinedAt,
       endedAt: employee.endedAt,
       isActive: employee.isActive,
-      overtimeMultiplier: settings.overtimeMultiplier,
+      overtime: settings,
       saldoCovered: saldo.covered,
       timeEntries: entries
         .filter((entry) => entry.employeeId === employee.id)

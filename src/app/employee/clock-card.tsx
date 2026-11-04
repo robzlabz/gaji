@@ -230,7 +230,7 @@ export function ClockCard({
           <FormField label="Istirahat (menit)">
             <Input name="breakMinutes" defaultValue={openEntry.breakMinutes} inputMode="numeric" />
           </FormField>
-          <FormField label="Lembur (menit)">
+          <FormField label="Lembur (menit)" hint="Kosongkan (0) — lembur dihitung otomatis dari jam kerja.">
             <Input
               name="overtimeMinutes"
               defaultValue={openEntry.overtimeMinutes}

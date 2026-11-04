@@ -106,9 +106,20 @@ export const organizations = pgTable("organizations", {
   payPeriodStartDay: smallint("pay_period_start_day").notNull().default(1),
   /** Jumlah hari kerja efektif per bulan untuk prorata gaji bulanan. */
   workingDaysPerMonth: smallint("working_days_per_month").notNull().default(22),
-  overtimeMultiplier: numeric("overtime_multiplier", { precision: 4, scale: 2 })
+  /** Jam kerja normal per hari — dasar memisah lembur jam pertama & jam berikutnya. */
+  normalHoursPerDay: numeric("normal_hours_per_day", { precision: 4, scale: 2 })
     .notNull()
-    .default("1.00"),
+    .default("7.00"),
+  /** Hari kerja per minggu: 6 = Senin–Sabtu (bawaan), 5 = Senin–Jumat, 7 = setiap hari. */
+  workingDaysPerWeek: smallint("working_days_per_week").notNull().default(6),
+  /** Pengali lembur jam pertama (PP 35/2021: 1,5× upah sejam). */
+  overtimeFirstMultiplier: numeric("overtime_first_multiplier", { precision: 4, scale: 2 })
+    .notNull()
+    .default("1.50"),
+  /** Pengali lembur jam berikutnya (PP 35/2021: 2× upah sejam). */
+  overtimeNextMultiplier: numeric("overtime_next_multiplier", { precision: 4, scale: 2 })
+    .notNull()
+    .default("2.00"),
   /** Ambang notifikasi kontrak akan berakhir (hari). */
   contractAlertDays: smallint("contract_alert_days").notNull().default(60),
   geofenceLat: doublePrecision("geofence_lat"),

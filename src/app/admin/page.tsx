@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { cashAdvances, contracts, employees, payPeriods, timeEntries } from "@/db/schema";
 import { requireAdmin } from "@/lib/session";
 import { previewPayroll } from "@/lib/payroll-run";
+import { overtimeSettingsFromOrg } from "@/lib/overtime";
 import { localDateString, formatDateID, PAY_TYPE_LABEL, rupiah, rupiahShort, toNumber } from "@/lib/format";
 import { periodContaining, periodLabel } from "@/lib/period";
 import { StatCard } from "@/components/stat-card";
@@ -85,9 +86,7 @@ export default async function AdminDashboard() {
     .orderBy(desc(payPeriods.periodStart))
     .limit(1);
 
-  const preview = await previewPayroll(org.id, period, {
-    overtimeMultiplier: toNumber(org.overtimeMultiplier),
-  });
+  const preview = await previewPayroll(org.id, period, overtimeSettingsFromOrg(org));
 
   const recentEntries = await db
     .select({

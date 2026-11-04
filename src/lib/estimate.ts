@@ -15,6 +15,7 @@ import {
 } from "@/db/schema";
 import { computePayslip, type PayslipComputation } from "@/lib/payroll";
 import { advanceLabel, isAdvanceEligible, resolveAdvanceDeduction } from "@/lib/kasbon";
+import type { OvertimeSettings } from "@/lib/overtime";
 import { rateAtDate } from "@/lib/saldo";
 import { saldoForPeriod } from "@/lib/saldo-server";
 import type { Period } from "@/lib/period";
@@ -65,9 +66,10 @@ export async function estimatePay(params: {
   orgId: string;
   employee: EstimateEmployee;
   period: Period;
-  overtimeMultiplier: number;
+  /** Pengaturan lembur organisasi — dipakai `computePayslip` yang sama dengan payroll final. */
+  overtime: OvertimeSettings;
 }): Promise<PayEstimate> {
-  const { orgId, employee, period, overtimeMultiplier } = params;
+  const { orgId, employee, period, overtime } = params;
 
   const [entries, tasks, carriedTasks, advances, plans, leaveRows, rateRows, saldo] =
     await Promise.all([
@@ -198,7 +200,7 @@ export async function estimatePay(params: {
       joinedAt: employee.joinedAt,
       endedAt: employee.endedAt,
       isActive: employee.isActive,
-      overtimeMultiplier,
+      overtime,
       timeEntries: entries
         .filter((entry) => (includePending ? entry.status !== "rejected" : entry.status === "approved"))
         .map((entry) => ({

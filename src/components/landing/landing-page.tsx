@@ -82,7 +82,7 @@ const STEPS = [
   },
   {
     title: "Biarkan absensi jalan",
-    body: "Karyawan clock in / clock out dari HP. Lembur dan koreksi dicatat manual.",
+    body: "Karyawan clock in / clock out dari HP. Lembur dihitung otomatis dari jam kerja, koreksi tetap bisa manual.",
   },
   {
     title: "Jalankan payroll",
@@ -441,7 +441,7 @@ export function LandingPage() {
               <ul className="mt-6 space-y-3 text-sm">
                 {[
                   "Periode mengikuti pengaturan perusahaan (default tanggal 26)",
-                  "Lembur dicatat manual, tidak menebak dari jam absen",
+                  "Lembur otomatis: jam pertama 1,5×, jam berikutnya 2× (PP 35/2021)",
                   "Kasbon dipotong sesuai rencana per periode",
                   "Ekspor CSV untuk pembukuan atau transfer bank",
                 ].map((item) => (

@@ -35,6 +35,7 @@ import {
 } from "@/lib/saldo-server";
 import { leaveWorkDays, normalizeLeaveKind } from "@/lib/leave";
 import { audit } from "@/lib/audit";
+import { normalizeOvertimeSettings, overtimeSettingsFromOrg } from "@/lib/overtime";
 import { requireOrgEmployee } from "@/lib/org-employee";
 import { previewPayroll, type PayrollRow } from "@/lib/payroll-run";
 import { ORG_COOKIE, requireAdmin } from "@/lib/session";
@@ -113,7 +114,16 @@ export async function updateOrgSettingsAction(formData: FormData) {
   const startDay = Math.min(31, Math.max(1, Number(str(formData, "payPeriodStartDay")) || 1));
   const alertDays = Math.max(0, Number(str(formData, "contractAlertDays")) || 60);
   const workingDays = Math.min(31, Math.max(1, Number(str(formData, "workingDaysPerMonth")) || 22));
-  const multiplier = Math.max(1, Number(str(formData, "overtimeMultiplier")) || 1);
+  // Pengaturan lembur (PP 35/2021): jam kerja normal/hari + hari kerja jadi dasar tarif sejam,
+  // dua pengali menentukan upah jam pertama dan jam berikutnya. Nilai di luar akal dipotong
+  // oleh `normalizeOvertimeSettings`, jadi payroll tidak pernah memakai pembagi nol.
+  const overtime = normalizeOvertimeSettings({
+    normalHoursPerDay: optionalNumber(formData, "normalHoursPerDay") ?? undefined,
+    workingDaysPerWeek: optionalNumber(formData, "workingDaysPerWeek") ?? undefined,
+    workingDaysPerMonth: workingDays,
+    firstHourMultiplier: optionalNumber(formData, "overtimeFirstMultiplier") ?? undefined,
+    nextHourMultiplier: optionalNumber(formData, "overtimeNextMultiplier") ?? undefined,
+  });
   const timezone = str(formData, "timezone");
   const timezoneSafe = TIMEZONE_OPTIONS.some((option) => option === timezone) ? timezone : org.timezone;
   const geofenceLat = optionalNumber(formData, "geofenceLat");
@@ -125,8 +135,11 @@ export async function updateOrgSettingsAction(formData: FormData) {
     .set({
       payPeriodStartDay: startDay,
       contractAlertDays: alertDays,
-      workingDaysPerMonth: workingDays,
-      overtimeMultiplier: multiplier.toFixed(2),
+      workingDaysPerMonth: overtime.workingDaysPerMonth,
+      normalHoursPerDay: overtime.normalHoursPerDay.toFixed(2),
+      workingDaysPerWeek: overtime.workingDaysPerWeek,
+      overtimeFirstMultiplier: overtime.firstHourMultiplier.toFixed(2),
+      overtimeNextMultiplier: overtime.nextHourMultiplier.toFixed(2),
       timezone: timezoneSafe,
       geofenceLat,
       geofenceLng,
@@ -140,7 +153,7 @@ export async function updateOrgSettingsAction(formData: FormData) {
     entity: "organizations",
     entityId: org.id,
     action: "update_settings",
-    diff: { startDay, alertDays, workingDays, multiplier, timezone: timezoneSafe, geofenceLat, geofenceLng, geofenceRadius },
+    diff: { startDay, alertDays, workingDays, overtime, timezone: timezoneSafe, geofenceLat, geofenceLng, geofenceRadius },
   });
 
   revalidatePath("/admin/pengaturan");
@@ -1703,7 +1716,7 @@ export async function createPayrollRunAction(formData: FormData) {
   const preview = await previewPayroll(
     org.id,
     { start: periodStart, end: periodEnd },
-    { overtimeMultiplier: toNumber(org.overtimeMultiplier) },
+    overtimeSettingsFromOrg(org),
   );
 
   const payable = preview.rows.filter((row) => row.computation.lines.length > 0);
@@ -1775,7 +1788,7 @@ export async function recalculatePayrollDraftAction(formData: FormData) {
     const preview = await previewPayroll(
       org.id,
       { start: period.periodStart, end: period.periodEnd },
-      { overtimeMultiplier: toNumber(org.overtimeMultiplier) },
+      overtimeSettingsFromOrg(org),
       tx,
     );
     const rows = preview.rows.filter((row) => row.computation.lines.length > 0);

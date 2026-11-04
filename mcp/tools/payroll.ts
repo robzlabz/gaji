@@ -199,7 +199,7 @@ export async function payrollPreview(
       payRate: employee.pay_rate,
       period,
       joinedAt: employee.joined_at,
-      overtimeMultiplier: org.overtimeMultiplier,
+      overtime: org.overtime,
       timeEntries: entries
         .filter((e) => e.employee_id === employee.id)
         .map((e) => ({

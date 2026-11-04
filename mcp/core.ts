@@ -13,6 +13,7 @@ import path from "node:path";
 import { config as loadDotenv } from "dotenv";
 import postgres from "postgres";
 import { addDays, localDateString } from "../src/lib/format";
+import { overtimeSettingsFromOrg, type OvertimeSettings } from "../src/lib/overtime";
 import { periodContaining, shiftPeriod, type Period } from "../src/lib/period";
 import { currentOrgScope } from "./scope";
 
@@ -88,7 +89,8 @@ export type Org = {
   timezone: string;
   payPeriodStartDay: number;
   workingDaysPerMonth: number;
-  overtimeMultiplier: number;
+  /** Jam kerja normal/hari, hari kerja/minggu, dan pengali lembur PP 35/2021. */
+  overtime: OvertimeSettings;
   contractAlertDays: number;
 };
 
@@ -99,7 +101,10 @@ type OrgRow = {
   timezone: string;
   pay_period_start_day: number;
   working_days_per_month: number;
-  overtime_multiplier: string | number;
+  normal_hours_per_day: string | number;
+  working_days_per_week: number;
+  overtime_first_multiplier: string | number;
+  overtime_next_multiplier: string | number;
   contract_alert_days: number;
 };
 
@@ -111,13 +116,20 @@ function toOrg(row: OrgRow): Org {
     timezone: row.timezone,
     payPeriodStartDay: row.pay_period_start_day,
     workingDaysPerMonth: row.working_days_per_month,
-    overtimeMultiplier: Number(row.overtime_multiplier),
+    overtime: overtimeSettingsFromOrg({
+      normalHoursPerDay: row.normal_hours_per_day,
+      workingDaysPerWeek: row.working_days_per_week,
+      workingDaysPerMonth: row.working_days_per_month,
+      overtimeFirstMultiplier: row.overtime_first_multiplier,
+      overtimeNextMultiplier: row.overtime_next_multiplier,
+    }),
     contractAlertDays: row.contract_alert_days,
   };
 }
 
 const ORG_COLUMNS = `id, name, slug, timezone, pay_period_start_day, working_days_per_month,
-  overtime_multiplier, contract_alert_days`;
+  normal_hours_per_day, working_days_per_week, overtime_first_multiplier,
+  overtime_next_multiplier, contract_alert_days`;
 
 export async function listOrgs(): Promise<Org[]> {
   // Request MCP yang membawa API key terikat ke satu tenant: hanya org itu yang terlihat.
