@@ -20,8 +20,10 @@ import {
   session,
   timeEntries,
   workTasks,
+  type PayType,
 } from "@/db/schema";
 import { AccountError, createCredentialUser, setPin } from "@/lib/accounts";
+import { isPayType } from "@/lib/contract-options";
 import { PlanError, resolvePlanPeriod, saveAdvancePlan } from "@/lib/kasbon-server";
 import {
   accrueForEntry,
@@ -165,7 +167,7 @@ export async function createEmployeeAction(formData: FormData) {
   const createLogin = str(formData, "createLogin") === "on";
 
   if (!fullName) fail(backTo, "Nama karyawan wajib diisi.");
-  if (!["hourly", "daily", "monthly", "per_task"].includes(payType))
+  if (!isPayType(payType))
     fail(backTo, "Tipe penggajian tidak valid.");
   if (payRate <= 0) fail(backTo, "Tarif harus lebih dari 0.");
 
@@ -249,7 +251,8 @@ export async function updateEmployeeAction(formData: FormData) {
 
   const fullName = str(formData, "fullName") || current.fullName;
   const code = optionalStr(formData, "code");
-  const payType = str(formData, "payType") || current.payType;
+  // Form karyawan hanya menawarkan PAY_TYPE_OPTIONS, jadi nilainya sah sebagai PayType.
+  const payType = (str(formData, "payType") || current.payType) as PayType;
   const payRate = parseMoneyInput(formData.get("payRate")) || toNumber(current.payRate);
   const hasTransportField = formData.get("transportRate") !== null;
   const transportRate = hasTransportField
@@ -402,7 +405,8 @@ export async function createContractAction(formData: FormData) {
   const kind = str(formData, "kind") || "pkwt";
   const startDate = str(formData, "startDate");
   const endDate = optionalStr(formData, "endDate");
-  const payType = str(formData, "payType") || employee.payType;
+  // Form kontrak hanya menawarkan PAY_TYPE_OPTIONS, jadi nilainya sah sebagai PayType.
+  const payType = (str(formData, "payType") || employee.payType) as PayType;
   const payRate = parseMoneyInput(formData.get("payRate")) || toNumber(employee.payRate);
   const renewedFromId = optionalStr(formData, "renewedFromId");
 
@@ -512,7 +516,7 @@ export async function updateContractAction(formData: FormData) {
 
   if (!["pkwt", "probation", "pkwtt", "other"].includes(kind))
     fail(backTo, "Jenis kontrak tidak valid.");
-  if (!["hourly", "daily", "monthly", "per_task"].includes(payType))
+  if (!isPayType(payType))
     fail(backTo, "Tipe gaji tidak valid.");
   if (kind !== "pkwtt" && !endDate)
     fail(backTo, "Kontrak selain PKWTT wajib punya tanggal berakhir.");

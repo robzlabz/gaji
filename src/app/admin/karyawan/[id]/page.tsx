@@ -53,13 +53,7 @@ import {
 } from "@/lib/format";
 import { workedMinutes } from "@/lib/payroll";
 import { leaveKindLabel, leavePaidLabel, leaveStatusTone } from "@/lib/leave";
-
-const PAY_TYPE_OPTIONS = [
-  { value: "hourly", label: "Per jam" },
-  { value: "daily", label: "Per hari" },
-  { value: "monthly", label: "Per bulan" },
-  { value: "per_task", label: "Per tugas" },
-];
+import { PAY_TYPE_OPTIONS } from "@/lib/contract-options";
 
 /** Tab detail karyawan; urutan ini juga urutan tampil di halaman. */
 const TABS = [

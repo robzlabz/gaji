@@ -150,7 +150,8 @@ export const employees = pgTable(
     userId: uuid("user_id").references(() => user.id, { onDelete: "set null" }),
     code: text("code"),
     fullName: text("full_name").notNull(),
-    payType: text("pay_type").notNull(),
+    /** Salah satu dari `PayType` (lihat PAY_TYPE_OPTIONS); $type hanya anotasi TS. */
+    payType: text("pay_type").$type<PayType>().notNull(),
     payRate: numeric("pay_rate", { precision: 14, scale: 2 }).notNull(),
     /**
      * Ongkos/transport default per kedatangan (clock in). 0 = tidak ada ongkos.
