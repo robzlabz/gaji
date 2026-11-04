@@ -313,7 +313,34 @@ I3 dan I4 sendirian akan menangkap #34, #35, #64, #66, dan bug `settle` di §3.3
 
 **Temuan 5 Nov 2026:** #91 (tabrakan nomor migrasi) masuk Fase 2 karena menghalangi merge semua PR fitur. #92 (pembagi upah sejam) masuk Fase 3 bersama #55/#56 — ketiganya soal upah yang sama. #76 (pelunasan shortfall tak dibatasi) masuk Fase 4 bersama #34 karena keduanya hanya berbahaya bila digabung.
 
+#93 (THR/pesangon tidak dipotong PPh 21) **tidak dimasukkan ke fase mana pun** karena §2.2 menempatkan pajak di luar cakupan MVP — lihat §7.0.
+
 #65 (open redirect) sudah ditutup di PR #75 — pindahkan ke kolom "sudah ada PR" di fase 1.
+
+### 7.0 Ketidaksesuaian strategi yang harus diputuskan owner
+
+§2.2 menyatakan **PPh 21, BPJS, THR, dan pelaporan pajak di luar cakupan MVP** ("ditunda, jangan dikerjakan sekarang"). Tetapi tujuh PR yang menunggu merge justru membangun tepat hal itu:
+
+| PR | Fitur | Status di roadmap |
+| --- | --- | --- |
+| #89 | PPh 21 + BPJS (#78) | §2.2 — di luar cakupan |
+| #86 | THR + pesangon (#79) | §2.2 — di luar cakupan |
+| #84 | Transfer bank (#81) | §2.2 — di luar cakupan |
+| #87 | Langganan/billing (#82) | tidak ada di roadmap |
+| #88 | Tanda tangan elektronik (#83) | tidak ada di roadmap |
+| #85 | Lembur otomatis (#80) | sebagian Fase 3 (#55) |
+| #90 | Backup/restore | mendukung G4 |
+
+Hanya #85 dan #90 yang punya alasan jelas masuk MVP. Sisanya (~24.000 baris) memperluas cakupan sementara **kelima gate masih merah**.
+
+Ini bukan penilaian bahwa fitur-fitur itu salah — kualitas teknisnya bagus, dan saya sendiri mengusulkan perbaikan konkret untuk masing-masing. Masalahnya adalah **urutan**: setiap PR baru menambah permukaan yang harus diverifikasi sebelum MVP bisa diumumkan, dan tidak ada satu pun yang membuka gate.
+
+Saya tidak akan memutuskan ini sendiri karena menyangkut strategi produk. Ada dua jalan yang konsisten:
+
+1. **Ubah roadmap:** pindahkan PPh 21/BPJS/THR/transfer bank ke dalam cakupan MVP, lalu perbarui target waktu dan gate-nya. Konsekuensinya MVP mundur, karena pajak dan THR menambah pekerjaan rekonsiliasi yang belum ada.
+2. **Tahan fitur:** merge #71, #53, #72, #73, #75 lebih dulu sampai G1 hijau dan G2 stabil, baru lanjutkan fitur-fitur itu. Konsekuensinya PR yang menunggu makin lama dan biaya rebase migrasi meningkat (#91).
+
+Pilihan 2 lebih murah sekarang, tetapi pilihan 1 mungkin lebih sesuai dengan arah bisnis yang owner inginkan. Yang tidak bisa diterima adalah keduanya berjalan bersamaan tanpa keputusan — itu kondisi saat ini, dan sudah berlangsung 10 hari.
 
 Sisa issue terbuka yang tidak masuk tabel di atas adalah duplikat atau sudah diperbaiki di `main` (#36 sudah diperbaiki oleh `80c2c53`; #48, #49, #47, #45, #39, #38, #33, #31, #25, #23, #13, #7, #5 sudah tertutup).
 
@@ -337,6 +364,14 @@ Antrean saat ini 12 PR terbuka. Urutan ini memaksimalkan yang bisa diverifikasi 
 | 12 | #90 | backup |
 
 Mulai nomor 6, **setiap PR wajib di-rebase ke `main` dan `npm run db:generate` dijalankan ulang** sebelum merge, supaya nomor migrasi naik sendiri (lihat #91).
+
+**Peringatan untuk nomor 8 dan 9.** #89 (pajak) dan #86 (THR) menyentuh uang yang sama tetapi tidak saling terhubung — lihat #93. Setelah keduanya merge, THR dan pesangon tetap dibayar bruto karena `kompensasi-actions.ts` menulis `totalDeductions: "0"`. Urutan ini boleh dijalankan, tetapi **jangan mengumumkan THR/pesangon sebagai fitur siap** sebelum pajaknya punya pemilik. Kalau #86 merge lebih dulu, catat di release notes bahwa pajak THR/pesangon belum dihitung.
+
+Dua temuan lain yang harus diperbaiki **di dalam** PR-nya masing-masing, bukan sebagai PR lanjutan:
+
+- **#86** — (a) dasar upah per jam memakai lembur 1× padahal payroll membayar 1,5×, sehingga THR kurang Rp550.000/bulan dan pesangon 5 tahun kurang Rp5.060.000 untuk pekerja per jam; (b) satu klik "Buat slip pesangon" membuat slip untuk **semua** karyawan; (c) indeks `pay_periods` berubah menjadi `(org, period_start, kind)` tetapi query MCP masih mengasumsikan `period_start` unik → error Postgres saat tanggal THR bertabrakan dengan awal periode.
+- **#89** — PTKP kosong menghasilkan PPh **nol** (seharusnya TK/0), dan kolom BPJS baru `DEFAULT false` membuat semua karyawan lama tidak dipotong BPJS sampai diedit satu per satu.
+- **#85** — accrual saldo masih memakai `employee.payRate` mentah dengan `payType: "hourly"` hardcoded → karyawan bulanan mendapat accrual Rp42,5 juta untuk 8 jam kerja. Bug #34 belum tertutup.
 
 ---
 
