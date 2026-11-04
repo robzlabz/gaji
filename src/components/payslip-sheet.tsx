@@ -66,18 +66,29 @@ export function PayslipSheet({ orgName, doc }: { orgName: string; doc: PayslipDo
   const earnings = items.filter((item) => !DEDUCTION_KINDS.has(item.kind));
   const deductions = items.filter((item) => DEDUCTION_KINDS.has(item.kind));
 
+  // Slip THR/pesangon memakai tabel yang sama, hanya judulnya yang berbeda.
+  const sheetTitle =
+    period.kind === "thr"
+      ? "Slip THR (Tunjangan Hari Raya)"
+      : period.kind === "severance"
+        ? "Slip pesangon"
+        : "Slip gaji karyawan";
+
   return (
     <Card className="mx-auto w-full max-w-[210mm] print:max-w-none print:ring-0">
       <CardHeader className="border-b">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <CardTitle className="text-lg">{orgName}</CardTitle>
-            <CardDescription>Slip gaji karyawan</CardDescription>
+            <CardDescription>{sheetTitle}</CardDescription>
           </div>
           <div className="text-right">
             <CardDescription>Periode</CardDescription>
             <p className="font-semibold tabular-nums">
-              {formatDateID(period.periodStart)} – {formatDateID(period.periodEnd)}
+              {formatDateID(period.periodStart)}
+              {period.periodEnd !== period.periodStart
+                ? ` – ${formatDateID(period.periodEnd)}`
+                : ""}
             </p>
             <CardDescription>
               {STATUS_LABEL[slip.status] ?? slip.status}

@@ -81,7 +81,8 @@ export default async function AdminDashboard() {
   const [latestPeriod] = await db
     .select()
     .from(payPeriods)
-    .where(eq(payPeriods.orgId, org.id))
+    // Kartu ini soal gaji reguler; slip THR/pesangon punya halamannya sendiri.
+    .where(and(eq(payPeriods.orgId, org.id), eq(payPeriods.kind, "regular")))
     .orderBy(desc(payPeriods.periodStart))
     .limit(1);
 

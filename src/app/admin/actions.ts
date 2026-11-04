@@ -1670,22 +1670,30 @@ export async function createPayrollRunAction(formData: FormData) {
     fail("/admin/payroll", "Rentang periode tidak valid.");
   }
 
-  // Indeks unik (org_id, period_start): baris void pun tetap menempati tanggal mulai ini.
+  // Indeks unik (org_id, period_start, kind): baris void pun tetap menempati tanggal mulai ini.
   const [existing] = await db
     .select({ id: payPeriods.id })
     .from(payPeriods)
-    .where(and(eq(payPeriods.orgId, org.id), eq(payPeriods.periodStart, periodStart)))
+    .where(
+      and(
+        eq(payPeriods.orgId, org.id),
+        eq(payPeriods.periodStart, periodStart),
+        eq(payPeriods.kind, "regular"),
+      ),
+    )
     .limit(1);
 
   if (existing) fail("/admin/payroll", "Periode ini sudah pernah dihitung.");
 
   // Rentang yang beririsan walau tanggal mulainya beda (mis. setelah tanggal mulai periode diubah).
+  // Slip THR/pesangon bertipe lain tidak ikut dihitung: itu pembayaran sekali, bukan gaji periode.
   const [overlapping] = await db
     .select({ periodStart: payPeriods.periodStart, periodEnd: payPeriods.periodEnd })
     .from(payPeriods)
     .where(
       and(
         eq(payPeriods.orgId, org.id),
+        eq(payPeriods.kind, "regular"),
         ne(payPeriods.status, "void"),
         lte(payPeriods.periodStart, periodEnd),
         gte(payPeriods.periodEnd, periodStart),
@@ -1716,6 +1724,7 @@ export async function createPayrollRunAction(formData: FormData) {
       .insert(payPeriods)
       .values({
         orgId: org.id,
+        kind: "regular",
         periodStart,
         periodEnd,
         payDate,
@@ -1766,6 +1775,10 @@ export async function recalculatePayrollDraftAction(formData: FormData) {
   if (!period) fail("/admin/payroll", "Periode tidak ditemukan.");
   if (period.status !== "draft")
     fail(`/admin/payroll/${periodId}`, "Hanya draft yang bisa dihitung ulang.");
+  // Slip THR/pesangon punya nominal sendiri dari kompensasi-actions dan tidak boleh
+  // ditimpa hasil hitung payroll reguler.
+  if (period.kind !== "regular")
+    fail(`/admin/payroll/${periodId}`, "Slip THR/pesangon tidak bisa dihitung ulang.");
 
   const payable = await db.transaction(async (tx) => {
     await revertPayrollSettlements(tx, org.id, periodId);

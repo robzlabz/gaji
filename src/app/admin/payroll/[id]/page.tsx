@@ -9,7 +9,7 @@ import { Flash } from "@/components/flash";
 import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
-import { statusLabel } from "@/lib/labels";
+import { PAY_PERIOD_KIND_LABEL, statusLabel } from "@/lib/labels";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -92,6 +92,9 @@ export default async function PayrollDetailPage({
           <p className="text-sm text-muted-foreground">
             {slips.length} slip · tanggal bayar{" "}
             {period.payDate ? formatDateID(period.payDate) : "belum diset"}
+            {period.kind !== "regular"
+              ? ` · ${PAY_PERIOD_KIND_LABEL[period.kind] ?? period.kind} (sekali bayar)`
+              : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -113,7 +116,7 @@ export default async function PayrollDetailPage({
             {statusLabel(period.status)}
           </StatusBadge>
 
-          {period.status === "draft" && (
+          {period.status === "draft" && period.kind === "regular" && (
             <>
               <Button asChild variant="outline">
                 <Link href="/admin/kasbon">Atur kasbon</Link>

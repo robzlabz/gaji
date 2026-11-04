@@ -522,13 +522,27 @@ export const payPeriods = pgTable(
     periodStart: date("period_start").notNull(),
     periodEnd: date("period_end").notNull(),
     payDate: date("pay_date"),
+    /**
+     * Jenis periode: `regular` (gaji dari absensi/tugas), `thr` (slip THR dari
+     * `/admin/thr`), atau `severance` (slip pesangon dari `/admin/pesangon`).
+     *
+     * Periode THR/pesangon adalah slip sekali bayar: `period_start` = `period_end` =
+     * tanggal acuan, tidak beririsan dengan periode gaji reguler, dan tidak pernah
+     * dihitung ulang oleh `previewPayroll`.
+     */
+    kind: text("kind").notNull().default("regular"),
     status: text("status").notNull().default("draft"),
     createdBy: uuid("created_by").references(() => user.id, { onDelete: "set null" }),
     approvedBy: uuid("approved_by").references(() => user.id, { onDelete: "set null" }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("pay_periods_org_start_uniq").on(t.orgId, t.periodStart)],
+  (t) => [
+    // Tanggal mulai boleh sama antar jenis (THR & gaji reguler bisa jatuh di tanggal yang
+    // sama), tapi tidak boleh dobel dalam jenis yang sama.
+    uniqueIndex("pay_periods_org_start_kind_uniq").on(t.orgId, t.periodStart, t.kind),
+    index("pay_periods_org_kind_idx").on(t.orgId, t.kind, t.periodStart),
+  ],
 );
 
 export const payslips = pgTable(
@@ -570,6 +584,11 @@ export const payslipItems = pgTable(
     payslipId: uuid("payslip_id")
       .notNull()
       .references(() => payslips.id, { onDelete: "cascade" }),
+    /**
+     * Jenis baris slip. Nilai khusus THR/pesangon: `thr` (satu baris per karyawan) dan
+     * `severance` (tiga baris: pesangon, penghargaan masa kerja, penggantian hak).
+     * Diisi oleh `src/app/admin/kompensasi-actions.ts`.
+     */
     kind: text("kind").notNull(),
     label: text("label").notNull(),
     qty: numeric("qty", { precision: 12, scale: 2 }).notNull(),
@@ -661,6 +680,8 @@ export const payslipRelations = relations(payslips, ({ one, many }) => ({
 }));
 
 export type PayType = "hourly" | "daily" | "monthly" | "per_task";
+/** Jenis periode payroll: gaji reguler, slip THR, atau slip pesangon. */
+export type PayPeriodKind = "regular" | "thr" | "severance";
 export type LeaveKind = "cuti" | "sakit" | "izin";
 export type LeaveStatus = "pending" | "approved" | "rejected" | "void";
 export type Role = "owner" | "admin" | "employee";

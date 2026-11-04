@@ -23,3 +23,10 @@ const STATUS_LABEL: Record<string, string> = {
 export function statusLabel(status: string): string {
   return STATUS_LABEL[status] ?? status;
 }
+
+/** Label jenis periode payroll (`pay_periods.kind`). */
+export const PAY_PERIOD_KIND_LABEL: Record<string, string> = {
+  regular: "Gaji",
+  thr: "THR",
+  severance: "Pesangon",
+};

@@ -27,7 +27,9 @@ export async function planningPeriod(
   const rows = await db
     .select({ periodStart: payPeriods.periodStart, status: payPeriods.status })
     .from(payPeriods)
-    .where(eq(payPeriods.orgId, org.id));
+    // Hanya periode gaji reguler: slip THR/pesangon bisa memakai tanggal mulai yang sama
+    // dan statusnya tidak mengunci rencana potong kasbon.
+    .where(and(eq(payPeriods.orgId, org.id), eq(payPeriods.kind, "regular")));
   const statusByStart = new Map(rows.map((row) => [row.periodStart, row.status]));
 
   let period = periodContaining(today, org.payPeriodStartDay);
@@ -63,7 +65,13 @@ export async function resolvePlanPeriod(
   const [existing] = await db
     .select({ id: payPeriods.id, status: payPeriods.status })
     .from(payPeriods)
-    .where(and(eq(payPeriods.orgId, org.id), eq(payPeriods.periodStart, period.start)))
+    .where(
+      and(
+        eq(payPeriods.orgId, org.id),
+        eq(payPeriods.periodStart, period.start),
+        eq(payPeriods.kind, "regular"),
+      ),
+    )
     .limit(1);
 
   if (existing && existing.status !== "draft") {

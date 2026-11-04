@@ -29,6 +29,13 @@
       "when": 1792425908095,
       "tag": "0003_mighty_mandroid",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793497122141,
+      "tag": "0004_thr",
+      "breakpoints": true
     }
   ]
 }
