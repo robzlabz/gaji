@@ -75,7 +75,7 @@ const EMPTY_SUMMARY: AdvanceSummary = {
 export async function previewPayroll(
   orgId: string,
   period: Period,
-  settings: { overtimeMultiplier: number },
+  settings: { overtimeMultiplier: number; statutory?: unknown },
   conn: Conn = db,
 ): Promise<PayrollPreview> {
   // Masa kerja beririsan dengan periode: batas `endedAt` berlaku untuk semua karyawan,
@@ -369,6 +369,15 @@ export async function previewPayroll(
       isActive: employee.isActive,
       overtimeMultiplier: settings.overtimeMultiplier,
       saldoCovered: saldo.covered,
+      // Data pajak/BPJS per karyawan + tarif iuran organisasi. Nilai yang benar-benar
+      // dipakai ikut tersimpan di slip (`payslips.statutory`) sebagai snapshot.
+      statutory: {
+        ptkpStatus: employee.ptkpStatus,
+        npwp: employee.npwp,
+        bpjsKesehatan: employee.bpjsKesehatan,
+        bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan,
+      },
+      statutorySettings: settings.statutory,
       timeEntries: entries
         .filter((entry) => entry.employeeId === employee.id)
         .map((entry) => ({

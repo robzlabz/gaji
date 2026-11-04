@@ -51,6 +51,11 @@ export type EstimateEmployee = {
   endedAt?: string | null;
   /** Lihat `ComputeInput.isActive`: hanya memengaruhi aturan `paysWholeRange`. */
   isActive?: boolean;
+  /** Data pajak/BPJS: estimasi memakai aturan yang sama dengan slip final. */
+  ptkpStatus?: string | null;
+  npwp?: string | null;
+  bpjsKesehatan?: boolean;
+  bpjsKetenagakerjaan?: boolean;
 };
 
 /**
@@ -66,8 +71,10 @@ export async function estimatePay(params: {
   employee: EstimateEmployee;
   period: Period;
   overtimeMultiplier: number;
+  /** Tarif iuran organisasi (`organizations.statutory_settings`). */
+  statutorySettings?: unknown;
 }): Promise<PayEstimate> {
-  const { orgId, employee, period, overtimeMultiplier } = params;
+  const { orgId, employee, period, overtimeMultiplier, statutorySettings } = params;
 
   const [entries, tasks, carriedTasks, advances, plans, leaveRows, rateRows, saldo] =
     await Promise.all([
@@ -241,6 +248,15 @@ export async function estimatePay(params: {
       // Estimasi tetap memakai angka saldo yang benar-benar tercatat (approved saja);
       // potensi upah dari absensi pending belum memotong saldo sampai di-approve.
       saldoCovered: saldo.covered,
+      // PPh 21 & BPJS memakai input yang sama dengan payroll, jadi angka estimasi
+      // karyawan tidak pernah beda rumus dengan slip finalnya.
+      statutory: {
+        ptkpStatus: employee.ptkpStatus,
+        npwp: employee.npwp,
+        bpjsKesehatan: employee.bpjsKesehatan,
+        bpjsKetenagakerjaan: employee.bpjsKetenagakerjaan,
+      },
+      statutorySettings,
     });
   }
 

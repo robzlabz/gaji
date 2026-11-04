@@ -1,14 +1,31 @@
 import { countWorkDays, workDatesBetween, type Period } from "./period";
 import { toNumber, rupiah } from "./format";
 import { accrualForEntry } from "./saldo";
+import { computeStatutory, formatPct, type StatutoryEmployee, type StatutoryResult } from "./statutory";
 
-export type PayLineKind = "regular" | "overtime" | "task" | "transport" | "kasbon" | "saldo" | "other";
+export type PayLineKind =
+  | "regular"
+  | "overtime"
+  | "task"
+  | "transport"
+  | "kasbon"
+  | "saldo"
+  | "bpjs"
+  | "pph21"
+  | "other";
 
 /**
  * Jenis baris yang mengurangi uang yang diserahkan (bukan menambah bruto).
- * `saldo` = upah yang sudah dibayar di muka, `kasbon` = utang karyawan.
+ * `saldo` = upah yang sudah dibayar di muka, `kasbon` = utang karyawan,
+ * `bpjs`/`pph21` = potongan wajib yang disetor ke negara (PPh 21) dan BPJS.
  */
-export const DEDUCTION_LINE_KINDS = new Set<string>(["kasbon", "saldo", "deduction"]);
+export const DEDUCTION_LINE_KINDS = new Set<string>([
+  "kasbon",
+  "saldo",
+  "deduction",
+  "bpjs",
+  "pph21",
+]);
 
 /** true bila baris slip adalah potongan (harus tampil dengan tanda minus). */
 export function isDeductionLine(kind: string): boolean {
@@ -33,6 +50,12 @@ export type PayslipComputation = {
   deductions: number;
   net: number;
   warnings: string[];
+  /**
+   * Hasil perhitungan PPh 21 & BPJS yang dipakai slip ini (termasuk tarifnya).
+   * Disimpan apa adanya ke `payslips.statutory` sebagai snapshot. Null bila
+   * pemanggil tidak menyertakan data kepegawaian sama sekali.
+   */
+  statutory: StatutoryResult | null;
 };
 
 export type TimeEntryInput = {
@@ -105,6 +128,15 @@ export type ComputeInput = {
    * `net` = uang tunai yang masih harus diserahkan (0 bila saldo menutup semua).
    */
   saldoCovered?: number;
+  /**
+   * Data wajib pajak & BPJS karyawan. **Kosongkan (`undefined`)** hanya bila
+   * pemanggil memang tidak punya datanya (mis. simulasi MCP): slip lalu tidak
+   * memotong apa pun dan tidak memunculkan peringatan. Kirim objek (boleh kosong
+   * isinya) supaya slip memberi peringatan bahwa data pajak/BPJS belum diisi.
+   */
+  statutory?: StatutoryEmployee | null;
+  /** Tarif iuran organisasi (`organizations.statutory_settings`); kosong = default kode. */
+  statutorySettings?: unknown;
 };
 
 function round2(n: number): number {
@@ -376,8 +408,68 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
     deductions += saldoCovered;
   }
 
-  // Tunai yang tersedia untuk potongan kasbon = upah yang belum dibayar lewat saldo.
+  // Tunai yang tersedia untuk potongan kasbon = upah yang belum dibayar lewat saldo,
+  // dikurangi potongan wajib (PPh 21 & BPJS) yang dihitung di bawah.
   let cashLeft = Math.max(0, gross - saldoCovered);
+
+  // Potongan wajib dihitung dari bruto periode ini, bukan dari sisa setelah saldo:
+  // PPh 21 dan BPJS tetap harus disetor walaupun upah sudah dibayar di muka.
+  // `undefined` = pemanggil tidak punya data kepegawaian (simulasi), jadi dilewati.
+  const statutory =
+    input.statutory === undefined
+      ? null
+      : computeStatutory({
+          monthlyWage: gross,
+          employee: input.statutory,
+          settings: input.statutorySettings,
+        });
+
+  let statutoryDeductions = 0;
+
+  if (statutory) {
+    warnings.push(...statutory.warnings);
+
+    for (const line of statutory.bpjs) {
+      if (line.employee <= 0) continue;
+      lines.push({
+        kind: "bpjs",
+        label: `${line.label} (${formatPct(line.employeePct)})`,
+        qty: 1,
+        unit: "potongan",
+        unitRate: line.employee,
+        amount: line.employee,
+        meta: {
+          code: line.code,
+          base: line.base,
+          employeePct: line.employeePct,
+          employerPct: line.employerPct,
+        },
+      });
+      statutoryDeductions += line.employee;
+    }
+
+    if (statutory.pph21.taxMonthly > 0) {
+      lines.push({
+        kind: "pph21",
+        label: "PPh 21",
+        qty: 1,
+        unit: "potongan",
+        unitRate: statutory.pph21.taxMonthly,
+        amount: statutory.pph21.taxMonthly,
+        meta: {
+          ptkpStatus: statutory.pph21.ptkpStatus,
+          ptkpAnnual: statutory.pph21.ptkpAnnual,
+          pkp: statutory.pph21.pkp,
+          taxAnnual: statutory.pph21.taxAnnual,
+          noNpwp: statutory.pph21.noNpwp,
+        },
+      });
+      statutoryDeductions += statutory.pph21.taxMonthly;
+    }
+
+    deductions += statutoryDeductions;
+    cashLeft = Math.max(0, cashLeft - statutoryDeductions);
+  }
 
   for (const advance of input.advances) {
     const balance = toNumber(advance.balance);
@@ -432,8 +524,10 @@ export function computePayslip(input: ComputeInput): PayslipComputation {
 
   const net = gross - deductions;
   if (net < 0) {
-    warnings.push("Potongan melebihi pendapatan — net negatif, periksa nominal kasbon.");
+    warnings.push(
+      "Potongan melebihi pendapatan — net negatif, periksa nominal kasbon dan potongan wajib (PPh 21/BPJS).",
+    );
   }
 
-  return { lines, gross, deductions, net, warnings };
+  return { lines, gross, deductions, net, warnings, statutory };
 }

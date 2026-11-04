@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { PAY_TYPE_LABEL, formatDateID, formatDateTimeID, rupiah, toNumber } from "@/lib/format";
 import { DEDUCTION_LINE_KINDS } from "@/lib/payroll";
+import { formatPct } from "@/lib/statutory";
 
 const DEDUCTION_KINDS = DEDUCTION_LINE_KINDS;
 
@@ -65,6 +66,12 @@ export function PayslipSheet({ orgName, doc }: { orgName: string; doc: PayslipDo
 
   const earnings = items.filter((item) => !DEDUCTION_KINDS.has(item.kind));
   const deductions = items.filter((item) => DEDUCTION_KINDS.has(item.kind));
+
+  // Snapshot pajak/BPJS yang tersimpan di slip. Slip lama (sebelum fitur ini) tidak
+  // punya snapshot, jadi bagian ini tidak dirender sama sekali untuk slip tersebut.
+  const statutory = slip.statutory;
+  const employerLines = statutory?.bpjs.filter((line) => line.employer > 0) ?? [];
+  const statutoryWarnings = statutory?.warnings ?? [];
 
   return (
     <Card className="mx-auto w-full max-w-[210mm] print:max-w-none print:ring-0">
@@ -161,6 +168,80 @@ export function PayslipSheet({ orgName, doc }: { orgName: string; doc: PayslipDo
             <dd className="text-lg font-bold tabular-nums">{rupiah(toNumber(slip.net))}</dd>
           </div>
         </dl>
+
+        {statutory && (
+          <>
+            <Separator />
+            <section className="flex flex-col gap-2">
+              <h2 className="text-sm font-semibold">Iuran perusahaan (bukan potongan)</h2>
+              <p className="text-xs text-muted-foreground">
+                Ditanggung perusahaan dan tidak mengurangi net karyawan. Ditampilkan sebagai
+                informasi biaya tenaga kerja.
+              </p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Program</TableHead>
+                    <TableHead className="text-right">Tarif</TableHead>
+                    <TableHead className="text-right">Iuran perusahaan</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {employerLines.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center text-muted-foreground">
+                        Tidak ada iuran perusahaan.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    <>
+                      {employerLines.map((line) => (
+                        <TableRow key={`employer-${line.code}`}>
+                          <TableCell className="font-medium">{line.label}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">
+                            {formatPct(line.employerPct)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {rupiah(line.employer)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow>
+                        <TableCell colSpan={2} className="font-semibold">
+                          Total iuran perusahaan
+                        </TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums">
+                          {rupiah(toNumber(slip.bpjsEmployer))}
+                        </TableCell>
+                      </TableRow>
+                    </>
+                  )}
+                </TableBody>
+              </Table>
+            </section>
+
+            <p className="text-xs text-muted-foreground">
+              PPh 21 metode setahun
+              {statutory.pph21.computed
+                ? ` · PTKP ${statutory.pph21.ptkpStatus} (${rupiah(statutory.pph21.ptkpAnnual)}/tahun) · PKP ${rupiah(statutory.pph21.pkp)}`
+                : " · belum dihitung"}
+              {statutory.pph21.noNpwp && statutory.pph21.computed ? " · tarif tanpa NPWP (+20%)" : ""}.
+            </p>
+          </>
+        )}
+
+        {statutoryWarnings.length > 0 && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+              Data pajak/BPJS perlu dilengkapi
+            </p>
+            <ul className="mt-1 flex list-disc flex-col gap-1 pl-4 text-xs text-amber-700 dark:text-amber-400">
+              {statutoryWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <CardDescription>
           Slip ini dibuat otomatis oleh sistem Gaji dan menyimpan snapshot tarif saat payroll dihitung.

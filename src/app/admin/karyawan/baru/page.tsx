@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { localDateString } from "@/lib/format";
+import { PTKP_LABEL, PTKP_STATUSES } from "@/lib/statutory";
 
 export const metadata = { title: "Tambah karyawan — Gaji" };
 
@@ -68,6 +69,42 @@ export default async function NewEmployeePage({
             >
               <Input name="transportRate" inputMode="numeric" placeholder="0" />
             </FormField>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Pajak &amp; BPJS</CardTitle>
+            <CardDescription>
+              Opsional. Selama PTKP kosong dan BPJS tidak dicentang, slip karyawan ini tidak
+              memotong PPh 21 maupun iuran — slip akan memberi peringatan supaya datanya dilengkapi.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <FormField
+              label="Status PTKP"
+              hint="Menentukan PTKP setahun untuk PPh 21. Kosong = PPh 21 tidak dihitung."
+            >
+              <SelectInput name="ptkpStatus" defaultValue="">
+                <option value="">Belum diisi (tidak dipotong)</option>
+                {PTKP_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {PTKP_LABEL[status]}
+                  </option>
+                ))}
+              </SelectInput>
+            </FormField>
+            <FormField
+              label="NPWP"
+              hint="15 atau 16 digit. Kosong = PPh 21 dihitung dengan tarif tanpa NPWP (+20%)."
+            >
+              <Input name="npwp" inputMode="numeric" placeholder="01.234.567.8-901.000" />
+            </FormField>
+            <CheckField name="bpjsKesehatan" label="Peserta BPJS Kesehatan" />
+            <CheckField
+              name="bpjsKetenagakerjaan"
+              label="Peserta BPJS Ketenagakerjaan (JHT, JP, JKK, JKM)"
+            />
           </CardContent>
         </Card>
 
